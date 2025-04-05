@@ -1,0 +1,9 @@
+[package]
+name = "monitor-rs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+btleplug = "0.11.7"
+futures = "0.3.31"
+tokio = { version = "1.44.2", features = ["macros", "rt", "rt-multi-thread", "sync"] }
