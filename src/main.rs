@@ -1,4 +1,3 @@
-use btleplug::api::bleuuid::BleUuid as _;
 use btleplug::api::{Central, CentralEvent, Manager as _, Peripheral as _, ScanFilter};
 use btleplug::platform::Manager;
 use futures::stream::StreamExt;
@@ -10,7 +9,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // get the first bluetooth adapter
     let adapters = manager.adapters().await?;
-    let central = adapters.into_iter().nth(0).unwrap();
+    let central = adapters.into_iter().next().unwrap();
 
     let central_state = central.adapter_state().await.unwrap();
     println!("CentralState: {:?}", central_state);
