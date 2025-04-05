@@ -8,6 +8,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install DBus
+        run: |
+          apt-get update
+          apt install libdbus-1-dev pkg-config
         
       - name: Install Rust
         run: |
