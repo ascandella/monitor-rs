@@ -2,9 +2,20 @@ use btleplug::api::{Central, CentralEvent, Manager as _, Peripheral as _, ScanFi
 use btleplug::platform::Manager;
 use futures::stream::StreamExt;
 use std::error::Error;
+use std::fs::File;
+use std::io::Read as _;
+
+mod config;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    let mut file = File::open("config.toml")?;
+    let mut config_contents = String::new();
+    file.read_to_string(&mut config_contents)?;
+    let config: config::AppConfig = toml::de::from_str(&config_contents)?;
+    println!("Config: {:?}", config);
+    // TODO: Use config
+
     let manager = Manager::new().await.unwrap();
 
     // get the first bluetooth adapter
