@@ -6,24 +6,27 @@ use std::fs::File;
 use std::io::Read as _;
 
 mod config;
+mod mqtt;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    // TODO: CLI argument to specify config file
     let mut file = File::open("config.toml")?;
     let mut config_contents = String::new();
     file.read_to_string(&mut config_contents)?;
-    let config: config::AppConfig = toml::de::from_str(&config_contents)?;
-    println!("Config: {:?}", config);
-    // TODO: Use config
 
-    let manager = Manager::new().await.unwrap();
+    let config: config::AppConfig = toml::de::from_str(&config_contents)?;
+
+    println!("Devices: {:?}", config.devices);
+
+    let (mqtt_client, mut eventloop) = mqtt::MqttClient::new(&config.mqtt);
+    mqtt_client.subscribe().await?;
+
+    let manager = Manager::new().await?;
 
     // get the first bluetooth adapter
     let adapters = manager.adapters().await?;
     let central = adapters.into_iter().next().unwrap();
-
-    let central_state = central.adapter_state().await.unwrap();
-    println!("CentralState: {:?}", central_state);
 
     // Each adapter has an event stream, we fetch via events(),
     // simplifying the type, this will return what is essentially a
@@ -32,6 +35,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // start scanning for devices
     central.start_scan(ScanFilter::default()).await?;
+
+    tokio::task::spawn(async move {
+        mqtt::MqttClient::event_loop(&mut eventloop).await;
+    });
 
     // Print based on whatever the event receiver outputs. Note that the event
     // receiver blocks, so in a real program, this should be run in its own
@@ -56,5 +63,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
             _ => {}
         }
     }
+
+    mqtt_client.disconnect().await?;
+
     Ok(())
 }
