@@ -1,5 +1,6 @@
 use btleplug::api::{Central as _, CentralEvent, Peripheral as _, ScanFilter};
 use futures::{StreamExt as _, executor::block_on};
+use tokio::sync::broadcast;
 
 pub struct Manager {
     adapter: btleplug::platform::Adapter,
@@ -9,24 +10,45 @@ pub struct Manager {
 
 async fn handle_btle_events(
     adapter: &btleplug::platform::Adapter,
+    mut rx: broadcast::Receiver<crate::mqtt::MqttAnnouncement>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut events = adapter.events().await?;
 
-    while let Some(event) = events.next().await {
-        match event {
-            CentralEvent::DeviceDiscovered(id) => {
-                let peripheral = adapter.peripheral(&id).await?;
-                let properties = peripheral.properties().await?;
-                let name = properties
-                    .and_then(|p| p.local_name)
-                    .map(|local_name| format!("Name: {local_name}"))
-                    .unwrap_or_default();
-                println!("DeviceDiscovered: {:?} {}", id, name);
+    let mut event_stream_closed = false;
+
+    loop {
+        if event_stream_closed {
+            break;
+        }
+        tokio::select! {
+            // Handle incoming MQTT messages (e.g. arrival scan requests)
+            Ok(msg) = rx.recv() => {
+                match msg {
+                    crate::mqtt::MqttAnnouncement::ScanArrive => {
+                        println!("Received scan request");
+                        adapter.start_scan(ScanFilter::default()).await?;
+                    }
+                }
             }
-            CentralEvent::DeviceDisconnected(id) => {
-                println!("DeviceDisconnected: {:?}", id);
+            event = events.next() => {
+                match event {
+                    Some(CentralEvent::DeviceDiscovered(id)) => {
+                        let peripheral = adapter.peripheral(&id).await?;
+                        let properties = peripheral.properties().await?;
+                        let name = properties
+                            .and_then(|p| p.local_name)
+                            .map(|local_name| format!("Name: {local_name}"))
+                            .unwrap_or_default();
+                        println!("DeviceDiscovered: {:?} {}", id, name);
+                    }
+                        Some(_) => {}
+                        None => {
+                            println!("No more events");
+                            event_stream_closed = true;
+                        }
+                }
             }
-            _ => {}
+            else => {}
         }
     }
     Ok(())
@@ -48,16 +70,18 @@ impl Manager {
     pub async fn run_loop(mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.adapter.start_scan(ScanFilter::default()).await?;
 
+        let (tx, rx) = broadcast::channel(10);
+
         // Handle incoming MQTT messages (e.g. arrival scan requests)
         tokio::task::spawn(async move {
             // TODO: Need to pass ability to trigger a BTLE scan to the event loop
-            crate::mqtt::MqttClient::event_loop(&mut self.mqtt_event_loop).await;
+            crate::mqtt::MqttClient::event_loop(&mut self.mqtt_event_loop, tx).await;
         });
 
         // Run on a separate thread as these currently block
         let btle_handle = std::thread::spawn(move || {
             // TODO: Need to pass the ability to publish MQTT messages to this function
-            if let Err(err) = block_on(handle_btle_events(&self.adapter)) {
+            if let Err(err) = block_on(handle_btle_events(&self.adapter, rx)) {
                 eprintln!("Error handling BTLE events: {:?}", err);
             }
             println!("Done handling BTLE events")

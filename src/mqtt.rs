@@ -1,12 +1,18 @@
 use std::time::Duration;
 
 use rumqttc::{MqttOptions, QoS};
+use tokio::sync::broadcast;
 
 use crate::config;
 
 pub struct MqttClient {
     client: rumqttc::AsyncClient,
     topic_path: String,
+}
+
+#[derive(Clone, Debug)]
+pub enum MqttAnnouncement {
+    ScanArrive,
 }
 
 impl MqttClient {
@@ -48,14 +54,20 @@ impl MqttClient {
         Ok(())
     }
 
-    pub async fn event_loop(eventloop: &mut rumqttc::EventLoop) {
+    pub async fn event_loop(
+        eventloop: &mut rumqttc::EventLoop,
+        tx: broadcast::Sender<MqttAnnouncement>,
+    ) {
         loop {
             match eventloop.poll().await {
                 Ok(notification) => match notification {
                     rumqttc::Event::Incoming(rumqttc::Packet::Publish(p)) => {
                         let payload = p.payload;
                         // b"{\"id\":\"<mac address>\",\"confidence\":\"0\",\"name\":\"<name>\",\"manufacturer\":\"Apple Inc\",\"type\":\"KNOWN_MAC\",\"retained\":\"false\",\"timestamp\":\"2025-04-06T13:23:39-0700\",\"version\":\"0.2.200\"}"
-                        println!("Received message: {:?}", payload);
+                        println!("Received MQTT message: {:?}", payload);
+                        if let Err(err) = tx.send(MqttAnnouncement::ScanArrive) {
+                            eprintln!("Error announcing arrival scan: {:?}", err);
+                        }
                     }
                     rumqttc::Event::Incoming(rumqttc::Packet::SubAck(_)) => {
                         println!("Subscription acknowledged");
