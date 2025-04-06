@@ -14,9 +14,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut file = File::open("config.toml")?;
     let mut config_contents = String::new();
     file.read_to_string(&mut config_contents)?;
+
     let config: config::AppConfig = toml::de::from_str(&config_contents)?;
 
-    let mqtt_client = mqtt::MqttClient::new(&config.mqtt);
+    let mut mqtt_client = mqtt::MqttClient::new(&config.mqtt);
     mqtt_client.subscribe().await?;
 
     let manager = Manager::new().await?;
@@ -25,9 +26,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let adapters = manager.adapters().await?;
     let central = adapters.into_iter().next().unwrap();
 
-    let central_state = central.adapter_state().await?;
-    println!("CentralState: {:?}", central_state);
-
     // Each adapter has an event stream, we fetch via events(),
     // simplifying the type, this will return what is essentially a
     // Future<Result<Stream<Item=CentralEvent>>>.
@@ -35,6 +33,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // start scanning for devices
     central.start_scan(ScanFilter::default()).await?;
+
+    tokio::task::spawn(async move {
+        mqtt_client.event_loop().await;
+    });
 
     // Print based on whatever the event receiver outputs. Note that the event
     // receiver blocks, so in a real program, this should be run in its own
@@ -59,8 +61,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
             _ => {}
         }
     }
-
-    mqtt_client.disconnect().await?;
 
     Ok(())
 }

@@ -41,8 +41,34 @@ impl MqttClient {
 
     pub async fn subscribe(&self) -> Result<(), rumqttc::ClientError> {
         self.client
-            .subscribe(format!("{}/scan/arrive", self.topic_path), QoS::AtMostOnce)
-            .await
+            .subscribe(
+                format!("{}/garage/robin_s_iphone", self.topic_path),
+                QoS::AtMostOnce,
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn event_loop(&mut self) {
+        loop {
+            match self.eventloop.poll().await {
+                Ok(notification) => match notification {
+                    rumqttc::Event::Incoming(rumqttc::Packet::Publish(p)) => {
+                        let payload = p.payload;
+                        // b"{\"id\":\"<mac address>\",\"confidence\":\"0\",\"name\":\"<name>\",\"manufacturer\":\"Apple Inc\",\"type\":\"KNOWN_MAC\",\"retained\":\"false\",\"timestamp\":\"2025-04-06T13:23:39-0700\",\"version\":\"0.2.200\"}"
+                        println!("Received message: {:?}", payload);
+                    }
+                    rumqttc::Event::Incoming(rumqttc::Packet::SubAck(_)) => {
+                        println!("Subscription acknowledged");
+                    }
+                    _ => {}
+                },
+                Err(e) => {
+                    eprintln!("Error: {:?}", e);
+                }
+            }
+        }
     }
 
     pub async fn disconnect(&self) -> Result<(), rumqttc::ClientError> {
