@@ -17,6 +17,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let config: config::AppConfig = toml::de::from_str(&config_contents)?;
 
+    println!("Devices: {:?}", config.devices);
+
     let mut mqtt_client = mqtt::MqttClient::new(&config.mqtt);
     mqtt_client.subscribe().await?;
 

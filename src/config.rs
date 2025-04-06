@@ -1,13 +1,11 @@
 use serde_derive::Deserialize;
 
-#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 pub struct AppConfig {
     pub mqtt: MqttConfig,
     pub devices: Option<Vec<BtleDevice>>,
 }
 
-#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 pub struct MqttConfig {
     pub host: String,
@@ -19,6 +17,7 @@ pub struct MqttConfig {
     pub keep_alive_seconds: Option<u64>,
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 pub struct BtleDevice {
     pub address: String,

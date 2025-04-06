@@ -41,10 +41,7 @@ impl MqttClient {
 
     pub async fn subscribe(&self) -> Result<(), rumqttc::ClientError> {
         self.client
-            .subscribe(
-                format!("{}/garage/robin_s_iphone", self.topic_path),
-                QoS::AtMostOnce,
-            )
+            .subscribe(format!("{}/scan/arrive", self.topic_path), QoS::AtMostOnce)
             .await?;
 
         Ok(())
