@@ -6,23 +6,26 @@ use std::fs::File;
 use std::io::Read as _;
 
 mod config;
+mod mqtt;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    // TODO: CLI argument to specify config file
     let mut file = File::open("config.toml")?;
     let mut config_contents = String::new();
     file.read_to_string(&mut config_contents)?;
     let config: config::AppConfig = toml::de::from_str(&config_contents)?;
-    println!("Config: {:?}", config);
-    // TODO: Use config
 
-    let manager = Manager::new().await.unwrap();
+    let mqtt_client = mqtt::MqttClient::new(&config.mqtt);
+    mqtt_client.subscribe().await?;
+
+    let manager = Manager::new().await?;
 
     // get the first bluetooth adapter
     let adapters = manager.adapters().await?;
     let central = adapters.into_iter().next().unwrap();
 
-    let central_state = central.adapter_state().await.unwrap();
+    let central_state = central.adapter_state().await?;
     println!("CentralState: {:?}", central_state);
 
     // Each adapter has an event stream, we fetch via events(),
@@ -56,5 +59,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
             _ => {}
         }
     }
+
+    mqtt_client.disconnect().await?;
+
     Ok(())
 }
