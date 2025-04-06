@@ -75,14 +75,13 @@ impl MqttClient {
                     _ => {}
                 },
                 Err(e) => {
-                    eprintln!("Error: {:?}", e);
+                    eprintln!("Error polling MQTT event loop: {:?}", e);
                 }
             }
         }
     }
 
     pub async fn disconnect(&self) -> Result<(), rumqttc::ClientError> {
-        // Disconnect from the MQTT broker
         self.client.disconnect().await
     }
 }

@@ -41,11 +41,11 @@ async fn handle_btle_events(
                             .unwrap_or_default();
                         println!("DeviceDiscovered: {:?} {}", id, name);
                     }
-                        Some(_) => {}
-                        None => {
-                            println!("No more events");
-                            event_stream_closed = true;
-                        }
+                    Some(_) => {}
+                    None => {
+                        println!("No more events");
+                        event_stream_closed = true;
+                    }
                 }
             }
             else => {}
