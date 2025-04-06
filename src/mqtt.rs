@@ -6,12 +6,11 @@ use crate::config;
 
 pub struct MqttClient {
     client: rumqttc::AsyncClient,
-    eventloop: rumqttc::EventLoop,
     topic_path: String,
 }
 
 impl MqttClient {
-    pub fn new(config: &config::MqttConfig) -> Self {
+    pub fn new(config: &config::MqttConfig) -> (Self, rumqttc::EventLoop) {
         let mut mqttoptions = MqttOptions::new(
             config
                 .publisher_id
@@ -32,11 +31,13 @@ impl MqttClient {
 
         let (client, eventloop) = rumqttc::AsyncClient::new(mqttoptions, 10);
 
-        MqttClient {
-            client,
+        (
+            MqttClient {
+                client,
+                topic_path: config.topic_path.clone().unwrap_or("monitor".to_string()),
+            },
             eventloop,
-            topic_path: config.topic_path.clone().unwrap_or("monitor".to_string()),
-        }
+        )
     }
 
     pub async fn subscribe(&self) -> Result<(), rumqttc::ClientError> {
@@ -47,9 +48,9 @@ impl MqttClient {
         Ok(())
     }
 
-    pub async fn event_loop(&mut self) {
+    pub async fn event_loop(eventloop: &mut rumqttc::EventLoop) {
         loop {
-            match self.eventloop.poll().await {
+            match eventloop.poll().await {
                 Ok(notification) => match notification {
                     rumqttc::Event::Incoming(rumqttc::Packet::Publish(p)) => {
                         let payload = p.payload;

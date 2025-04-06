@@ -19,7 +19,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     println!("Devices: {:?}", config.devices);
 
-    let mut mqtt_client = mqtt::MqttClient::new(&config.mqtt);
+    let (mqtt_client, mut eventloop) = mqtt::MqttClient::new(&config.mqtt);
     mqtt_client.subscribe().await?;
 
     let manager = Manager::new().await?;
@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     central.start_scan(ScanFilter::default()).await?;
 
     tokio::task::spawn(async move {
-        mqtt_client.event_loop().await;
+        mqtt::MqttClient::event_loop(&mut eventloop).await;
     });
 
     // Print based on whatever the event receiver outputs. Note that the event
@@ -63,6 +63,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
             _ => {}
         }
     }
+
+    mqtt_client.disconnect().await?;
 
     Ok(())
 }
