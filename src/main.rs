@@ -1,11 +1,11 @@
-use btleplug::api::{Central, CentralEvent, Manager as _, Peripheral as _, ScanFilter};
+use btleplug::api::Manager as _;
 use btleplug::platform::Manager;
-use futures::stream::StreamExt;
 use std::error::Error;
 use std::fs::File;
 use std::io::Read as _;
 
 mod config;
+mod manager;
 mod mqtt;
 
 #[tokio::main]
@@ -19,52 +19,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     println!("Devices: {:?}", config.devices);
 
-    let (mqtt_client, mut eventloop) = mqtt::MqttClient::new(&config.mqtt);
+    let (mqtt_client, eventloop) = mqtt::MqttClient::new(&config.mqtt);
     mqtt_client.subscribe().await?;
 
-    let manager = Manager::new().await?;
+    let bt_manager = Manager::new().await?;
 
     // get the first bluetooth adapter
-    let adapters = manager.adapters().await?;
+    let adapters = bt_manager.adapters().await?;
     let central = adapters.into_iter().next().unwrap();
 
-    // Each adapter has an event stream, we fetch via events(),
-    // simplifying the type, this will return what is essentially a
-    // Future<Result<Stream<Item=CentralEvent>>>.
-    let mut events = central.events().await?;
-
-    // start scanning for devices
-    central.start_scan(ScanFilter::default()).await?;
-
-    tokio::task::spawn(async move {
-        mqtt::MqttClient::event_loop(&mut eventloop).await;
-    });
-
-    // Print based on whatever the event receiver outputs. Note that the event
-    // receiver blocks, so in a real program, this should be run in its own
-    // thread (not task, as this library does not yet use async channels).
-    while let Some(event) = events.next().await {
-        match event {
-            CentralEvent::DeviceDiscovered(id) => {
-                let peripheral = central.peripheral(&id).await?;
-                let properties = peripheral.properties().await?;
-                let name = properties
-                    .and_then(|p| p.local_name)
-                    .map(|local_name| format!("Name: {local_name}"))
-                    .unwrap_or_default();
-                println!("DeviceDiscovered: {:?} {}", id, name);
-            }
-            CentralEvent::StateUpdate(state) => {
-                println!("AdapterStatusUpdate {:?}", state);
-            }
-            CentralEvent::DeviceDisconnected(id) => {
-                println!("DeviceDisconnected: {:?}", id);
-            }
-            _ => {}
-        }
-    }
-
-    mqtt_client.disconnect().await?;
+    let core = manager::Manager::new(central, mqtt_client, eventloop);
+    core.run_loop().await?;
 
     Ok(())
 }
