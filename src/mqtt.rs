@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use log::{debug, error};
 use rumqttc::{MqttOptions, QoS};
 use tokio::sync::broadcast;
 
@@ -64,24 +65,26 @@ impl MqttClient {
                     rumqttc::Event::Incoming(rumqttc::Packet::Publish(p)) => {
                         let payload = p.payload;
                         // b"{\"id\":\"<mac address>\",\"confidence\":\"0\",\"name\":\"<name>\",\"manufacturer\":\"Apple Inc\",\"type\":\"KNOWN_MAC\",\"retained\":\"false\",\"timestamp\":\"2025-04-06T13:23:39-0700\",\"version\":\"0.2.200\"}"
-                        println!("Received MQTT message: {:?}", payload);
+                        debug!("Received MQTT message: {:?}", payload);
+
                         if let Err(err) = tx.send(MqttAnnouncement::ScanArrive) {
-                            eprintln!("Error announcing arrival scan: {:?}", err);
+                            error!("Error announcing arrival scan: {:?}", err);
                         }
                     }
                     rumqttc::Event::Incoming(rumqttc::Packet::SubAck(_)) => {
-                        println!("Subscription acknowledged");
+                        debug!("Subscription acknowledged");
                     }
                     _ => {}
                 },
                 Err(e) => {
-                    eprintln!("Error polling MQTT event loop: {:?}", e);
+                    error!("Error polling MQTT event loop: {:?}", e);
                 }
             }
         }
     }
 
     pub async fn disconnect(&self) -> Result<(), rumqttc::ClientError> {
+        debug!("Disconnecting MQTT client");
         self.client.disconnect().await
     }
 }
