@@ -1,3 +1,4 @@
+use mac_address::MacAddress;
 use serde_derive::Deserialize;
 
 #[derive(Deserialize, Debug)]
@@ -20,6 +21,6 @@ pub struct MqttConfig {
 #[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 pub struct BleDevice {
-    pub address: String,
+    pub address: MacAddress,
     pub name: String,
 }
