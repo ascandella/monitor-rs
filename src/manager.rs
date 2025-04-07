@@ -41,7 +41,7 @@ impl Manager {
         // Run on a separate thread as these currently block
         let btle_handle = std::thread::spawn(move || {
             // TODO: Need to pass the ability to publish MQTT messages to this function
-            if let Err(err) = block_on(handle_btle_events(&self.adapter, rx)) {
+            if let Err(err) = block_on(handle_btle_events(&self.adapter, rx, self.devices)) {
                 error!("Error handling BLE events: {:?}", err);
             }
             debug!("Done handling BLE events");
@@ -61,6 +61,7 @@ impl Manager {
 async fn handle_btle_events(
     adapter: &btleplug::platform::Adapter,
     mut rx: broadcast::Receiver<crate::mqtt::MqttAnnouncement>,
+    devices: Vec<BleDevice>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut events = adapter.events().await?;
 
@@ -84,16 +85,21 @@ async fn handle_btle_events(
                     }
                 }
             }
+            // TODO: Selection channel for timers
+            // Handle BLE events
             event = events.next() => {
                 match event {
                     Some(CentralEvent::DeviceDiscovered(id)) => {
                         let peripheral = adapter.peripheral(&id).await?;
                         let properties = peripheral.properties().await?;
-                        let name = properties
-                            .and_then(|p| p.local_name)
-                            .map(|local_name| format!("Name: {local_name}"))
-                            .unwrap_or_default();
-                        debug!("DeviceDiscovered: {:?} {}", id, name);
+                        match matching_device(&devices, properties) {
+                            Some(_device) => {
+                                // TODO: send MQTT message
+                                // Start a timer for when it falls out of announcement
+                                unimplemented!("Need to handle this");
+                            }
+                            None => {}
+                        }
                     }
                     Some(_) => {}
                     None => {
@@ -106,4 +112,32 @@ async fn handle_btle_events(
         }
     }
     Ok(())
+}
+
+fn matching_device(
+    devices: &[BleDevice],
+    properties: Option<btleplug::api::PeripheralProperties>,
+) -> Option<&BleDevice> {
+    match properties {
+        Some(props) => {
+            let name = props.local_name.unwrap_or_default();
+            if let Some(matching_device) = devices
+                .iter()
+                .find(|d| d.address.bytes() == props.address.as_ref())
+            {
+                info!("Discovered device {} ({})", matching_device.address, name);
+                return Some(matching_device);
+            } else {
+                debug!(
+                    "Discovered device but not interested in MAC {} ({})",
+                    props.address, name,
+                );
+                return None;
+            }
+        }
+        None => {
+            warn!("No properties for discovered device");
+            return None;
+        }
+    }
 }

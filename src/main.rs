@@ -1,7 +1,7 @@
 use btleplug::api::Manager as _;
 use btleplug::platform::Manager;
 use clap::{Parser, arg};
-use log::{LevelFilter, info};
+use log::{LevelFilter, debug, info};
 use std::error::Error;
 use std::fs::File;
 use std::io::Read as _;
@@ -41,7 +41,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let config: config::AppConfig = toml::de::from_str(&config_contents)?;
 
-    info!(devices:? = config.devices; "Initialized devices");
+    debug!("Configured to look for devices: {:?}", config.devices);
 
     let (mqtt_client, eventloop) = mqtt::MqttClient::new(&config.mqtt);
     mqtt_client.subscribe().await?;
@@ -51,6 +51,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // get the first bluetooth adapter
     let adapters = bt_manager.adapters().await?;
     let central = adapters.into_iter().next().unwrap();
+
+    info!("Devices initialized, starting event loop");
 
     let core = manager::Manager::new(
         central,
