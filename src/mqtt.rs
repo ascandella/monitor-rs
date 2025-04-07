@@ -66,7 +66,7 @@ impl MqttClient {
                     rumqttc::Event::Incoming(rumqttc::Packet::Publish(p)) => {
                         let payload = p.payload;
                         // b"{\"id\":\"<mac address>\",\"confidence\":\"0\",\"name\":\"<name>\",\"manufacturer\":\"Apple Inc\",\"type\":\"KNOWN_MAC\",\"retained\":\"false\",\"timestamp\":\"2025-04-06T13:23:39-0700\",\"version\":\"0.2.200\"}"
-                        debug!("Received MQTT message: {:?}", payload);
+                        debug!("Received MQTT message on topic {}: {:?}", p.topic, payload);
 
                         let message = match p.topic {
                             t if t.ends_with("/arrive") => MqttAnnouncement::ScanArrive,

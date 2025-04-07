@@ -1,5 +1,5 @@
 use btleplug::api::{Central as _, CentralEvent, Peripheral as _, ScanFilter};
-use futures::{StreamExt as _, executor::block_on};
+use futures::StreamExt as _;
 use log::{debug, error, info, warn};
 use tokio::sync::broadcast;
 
@@ -39,15 +39,15 @@ impl Manager {
         });
 
         // Run on a separate thread as these currently block
-        let btle_handle = std::thread::spawn(move || {
+        let btle_handle = tokio::task::spawn(async move {
             // TODO: Need to pass the ability to publish MQTT messages to this function
-            if let Err(err) = block_on(handle_btle_events(&self.adapter, rx, self.devices)) {
+            if let Err(err) = handle_btle_events(&self.adapter, rx, self.devices).await {
                 error!("Error handling BLE events: {:?}", err);
             }
             debug!("Done handling BLE events");
         });
 
-        if let Err(err) = btle_handle.join() {
+        if let Err(err) = btle_handle.await {
             error!("Error handling BLE events: {:?}", err);
         }
         debug!("Exiting manager event loop");
@@ -77,7 +77,9 @@ async fn handle_btle_events(
                 match msg {
                     MqttAnnouncement::ScanArrive => {
                         info!("Received arrival scan request");
-                        adapter.start_scan(ScanFilter::default()).await?;
+                        if let Err(err) = adapter.start_scan(ScanFilter::default()).await {
+                            error!("Error starting scan: {:?}", err);
+                        }
                     }
                     MqttAnnouncement::ScanDepart => {
                         info!("Received departure request");
