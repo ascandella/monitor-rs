@@ -1,5 +1,6 @@
 use btleplug::api::Manager as _;
 use btleplug::platform::Manager;
+use clap::{Parser, arg};
 use log::{LevelFilter, info};
 use std::error::Error;
 use std::fs::File;
@@ -9,14 +10,32 @@ mod config;
 mod manager;
 mod mqtt;
 
+#[derive(Parser, Debug)]
+struct Args {
+    /// Path to the config file
+    #[arg(short, long, default_value = "config.toml")]
+    config: String,
+
+    #[arg(short, long)]
+    verbose: bool,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    let args = Args::parse();
+
+    let default_level = if args.verbose {
+        LevelFilter::Debug
+    } else {
+        LevelFilter::Info
+    };
+
     pretty_env_logger::formatted_builder()
-        .filter_level(LevelFilter::Info)
+        .filter_level(default_level)
         .parse_default_env()
         .init();
-    // TODO: CLI argument to specify config file
-    let mut file = File::open("config.toml")?;
+
+    let mut file = File::open(args.config)?;
     let mut config_contents = String::new();
     file.read_to_string(&mut config_contents)?;
 
