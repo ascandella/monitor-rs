@@ -92,13 +92,11 @@ async fn handle_btle_events(
                     Some(CentralEvent::DeviceDiscovered(id)) => {
                         let peripheral = adapter.peripheral(&id).await?;
                         let properties = peripheral.properties().await?;
-                        match matching_device(&devices, properties) {
-                            Some(_device) => {
-                                // TODO: send MQTT message
-                                // Start a timer for when it falls out of announcement
-                                unimplemented!("Need to handle this");
-                            }
-                            None => {}
+
+                        if let Some(_device) = matching_device(&devices, properties) {
+                            // TODO: send MQTT message
+                            // Start a timer for when it falls out of announcement
+                            unimplemented!("Need to handle this");
                         }
                     }
                     Some(_) => {}
@@ -126,18 +124,18 @@ fn matching_device(
                 .find(|d| d.address.bytes() == props.address.as_ref())
             {
                 info!("Discovered device {} ({})", matching_device.address, name);
-                return Some(matching_device);
+                Some(matching_device)
             } else {
                 debug!(
                     "Discovered device but not interested in MAC {} ({})",
                     props.address, name,
                 );
-                return None;
+                None
             }
         }
         None => {
             warn!("No properties for discovered device");
-            return None;
+            None
         }
     }
 }
