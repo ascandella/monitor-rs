@@ -14,6 +14,7 @@ pub struct MqttClient {
 #[derive(Clone, Debug)]
 pub enum MqttAnnouncement {
     ScanArrive,
+    ScanDepart,
 }
 
 impl MqttClient {
@@ -67,8 +68,13 @@ impl MqttClient {
                         // b"{\"id\":\"<mac address>\",\"confidence\":\"0\",\"name\":\"<name>\",\"manufacturer\":\"Apple Inc\",\"type\":\"KNOWN_MAC\",\"retained\":\"false\",\"timestamp\":\"2025-04-06T13:23:39-0700\",\"version\":\"0.2.200\"}"
                         debug!("Received MQTT message: {:?}", payload);
 
-                        if let Err(err) = tx.send(MqttAnnouncement::ScanArrive) {
-                            error!("Error announcing arrival scan: {:?}", err);
+                        let message = match p.topic {
+                            t if t.ends_with("/arrive") => MqttAnnouncement::ScanArrive,
+                            _ => MqttAnnouncement::ScanDepart,
+                        };
+
+                        if let Err(err) = tx.send(message) {
+                            error!("Error announcing scan: {:?}", err);
                         }
                     }
                     rumqttc::Event::Incoming(rumqttc::Packet::SubAck(_)) => {

@@ -1,12 +1,15 @@
 use btleplug::api::{Central as _, CentralEvent, Peripheral as _, ScanFilter};
 use futures::{StreamExt as _, executor::block_on};
-use log::{debug, info, warn, error};
+use log::{debug, error, info, warn};
 use tokio::sync::broadcast;
+
+use crate::{config::BleDevice, mqtt::MqttAnnouncement};
 
 pub struct Manager {
     adapter: btleplug::platform::Adapter,
     mqtt_client: crate::mqtt::MqttClient,
     mqtt_event_loop: rumqttc::EventLoop,
+    devices: Vec<BleDevice>,
 }
 
 impl Manager {
@@ -14,11 +17,13 @@ impl Manager {
         adapter: btleplug::platform::Adapter,
         mqtt_client: crate::mqtt::MqttClient,
         mqtt_event_loop: rumqttc::EventLoop,
+        devices: Vec<BleDevice>,
     ) -> Self {
         Manager {
             adapter,
             mqtt_client,
             mqtt_event_loop,
+            devices,
         }
     }
 
@@ -37,13 +42,13 @@ impl Manager {
         let btle_handle = std::thread::spawn(move || {
             // TODO: Need to pass the ability to publish MQTT messages to this function
             if let Err(err) = block_on(handle_btle_events(&self.adapter, rx)) {
-                error!("Error handling BTLE events: {:?}", err);
+                error!("Error handling BLE events: {:?}", err);
             }
             debug!("Done handling BLE events");
         });
 
         if let Err(err) = btle_handle.join() {
-            error!("Error handling btle events: {:?}", err);
+            error!("Error handling BLE events: {:?}", err);
         }
         debug!("Exiting manager event loop");
 
@@ -69,9 +74,13 @@ async fn handle_btle_events(
             // Handle incoming MQTT messages (e.g. arrival scan requests)
             Ok(msg) = rx.recv() => {
                 match msg {
-                    crate::mqtt::MqttAnnouncement::ScanArrive => {
-                        info!("Received scan request");
+                    MqttAnnouncement::ScanArrive => {
+                        info!("Received arrival scan request");
                         adapter.start_scan(ScanFilter::default()).await?;
+                    }
+                    MqttAnnouncement::ScanDepart => {
+                        info!("Received departure request");
+                        unimplemented!("Need to handle this");
                     }
                 }
             }
@@ -98,4 +107,3 @@ async fn handle_btle_events(
     }
     Ok(())
 }
-

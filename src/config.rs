@@ -3,7 +3,7 @@ use serde_derive::Deserialize;
 #[derive(Deserialize, Debug)]
 pub struct AppConfig {
     pub mqtt: MqttConfig,
-    pub devices: Option<Vec<BtleDevice>>,
+    pub devices: Option<Vec<BleDevice>>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -19,7 +19,7 @@ pub struct MqttConfig {
 
 #[allow(dead_code)]
 #[derive(Deserialize, Debug)]
-pub struct BtleDevice {
+pub struct BleDevice {
     pub address: String,
     pub name: String,
 }

@@ -33,7 +33,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let adapters = bt_manager.adapters().await?;
     let central = adapters.into_iter().next().unwrap();
 
-    let core = manager::Manager::new(central, mqtt_client, eventloop);
+    let core = manager::Manager::new(
+        central,
+        mqtt_client,
+        eventloop,
+        config.devices.unwrap_or_default(),
+    );
     core.run_loop().await?;
 
     Ok(())
