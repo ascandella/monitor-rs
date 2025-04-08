@@ -38,7 +38,7 @@ impl MqttClient {
             config.port.unwrap_or(1883),
         );
 
-        mqttoptions.set_keep_alive(Duration::from_secs(config.keep_alive_seconds.unwrap_or(5)));
+        mqttoptions.set_keep_alive(Duration::from_secs(config.keep_alive_seconds.unwrap_or(15)));
 
         if let (Some(username), Some(password)) =
             (config.username.as_ref(), config.password.as_ref())

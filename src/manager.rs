@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use anyhow::Context as _;
 use btleplug::api::{Central as _, CentralEvent, Peripheral as _, ScanFilter};
 use futures::StreamExt as _;
-use log::{debug, error, info, warn};
+use log::{debug, error, warn};
 use tokio::sync::broadcast;
 
 use crate::{
@@ -185,7 +185,7 @@ fn matching_device(
             let manufacturer_id = manufacturer_data.keys().find(|id| company_ids.contains(id));
 
             if let Some(manufacturer_id) = manufacturer_id {
-                info!(
+                debug!(
                     "Discovered device passing manufacturer filter {}{} [{}]",
                     props.address, name, manufacturer_id
                 );

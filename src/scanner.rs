@@ -55,7 +55,7 @@ impl Scanner {
             announce_rx,
             // TODO: make this configurable
             device_seen_debounce: std::time::Duration::from_secs(60),
-            device_trigger_debounce: std::time::Duration::from_secs(60),
+            device_trigger_debounce: std::time::Duration::from_secs(120),
             device_map,
         }
     }
@@ -105,7 +105,7 @@ impl Scanner {
                             }
                         };
                         if should_scan_devices {
-                            info!("Received device trigger request");
+                            info!("Triggering scan due to new device matching manufacturer filter");
                             last_trigger = Some(std::time::SystemTime::now());
                             self.scan_arrival()
                                 .await
@@ -186,7 +186,7 @@ async fn scan_device(
             name,
             &device_info.mac_address,
             crate::messages::DevicePresence::Present(100),
-        )?;
+        )
     } else {
         debug!("Device {} is not present", name);
         device_info.seen = DeviceSeen::NotSeen;
@@ -195,9 +195,8 @@ async fn scan_device(
             name,
             &device_info.mac_address,
             crate::messages::DevicePresence::Absent,
-        )?;
+        )
     }
-    Ok(())
 }
 
 fn announce_device(
@@ -217,6 +216,10 @@ fn announce_device(
     Ok(())
 }
 
+/// Shell out to `hcitool name <MAC>` like the Bash version of this utility does.
+/// Theoretically this is something that could be done in Rust, but `btleplug` only supports direct
+/// connecting via MAC address on Android, not Windows/Linux/macOS. That means this
+/// function only works on Linux, since `hcitool` is a `bluez` utility.
 async fn is_device_present(state: &DeviceState) -> anyhow::Result<bool> {
     let output = Command::new("hcitool")
         .arg("name")
