@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     pretty_env_logger::formatted_builder()
-        .filter_level(default_level)
+        .filter_module("monitor_rs", default_level)
         .parse_default_env()
         .init();
 

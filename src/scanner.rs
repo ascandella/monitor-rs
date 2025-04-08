@@ -137,7 +137,10 @@ impl Scanner {
                     }
                 },
                 DeviceSeen::NotSeen => {
-                    debug!("Device {} is not seen", name);
+                    debug!(
+                        "Device {} currently marked as absent, is candidate for arrival scan",
+                        name
+                    );
                     true
                 }
             };

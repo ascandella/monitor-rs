@@ -183,7 +183,7 @@ fn matching_device(
                 true
             } else {
                 debug!(
-                    "Discovered device but not interested in manufacturer {} ({})",
+                    "Discovered device but not interested in manufacturer {}{}",
                     props.address, name
                 );
                 false
