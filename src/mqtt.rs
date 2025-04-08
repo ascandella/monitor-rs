@@ -98,9 +98,7 @@ impl MqttClient {
                             error!("Error subscribing to MQTT topics: {:?}", err);
                         }
                     }
-                    otherwise => {
-                        debug!("Received MQTT event: {:?}", otherwise);
-                    }
+                    _ => {}
                 },
                 Err(e) => {
                     error!("Error polling MQTT event loop: {:?}", e);
