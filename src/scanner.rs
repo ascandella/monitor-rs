@@ -69,12 +69,14 @@ impl Scanner {
                 Ok(msg) => match msg {
                     StateAnnouncement::ScanArrive => {
                         info!("Received arrival scan request");
+                        last_trigger = Some(std::time::SystemTime::now());
                         self.scan_arrival()
                             .await
                             .context("Failed to scan arrivals")?;
                     }
                     StateAnnouncement::ScanDepart => {
                         info!("Received departure request");
+                        last_trigger = Some(std::time::SystemTime::now());
                         self.scan_departure()
                             .await
                             .context("Failed to scan departure")?;
