@@ -46,7 +46,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     debug!("Configured to look for devices: {:?}", config.devices);
 
     let (mqtt_client, eventloop) = mqtt::MqttClient::new(&config.mqtt);
-    mqtt_client.subscribe().await?;
 
     let bt_manager = Manager::new().await?;
 

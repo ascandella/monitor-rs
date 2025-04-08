@@ -1,12 +1,13 @@
 use std::time::Duration;
 
 use log::{debug, error, info};
-use rumqttc::{MqttOptions, QoS};
+use rumqttc::{MqttOptions, QoS, SubscribeFilter};
 use serde::Serialize;
 use tokio::sync::broadcast;
 
 use crate::{config, messages::StateAnnouncement};
 
+#[derive(Debug, Clone)]
 pub struct MqttClient {
     client: rumqttc::AsyncClient,
     publisher_id: String,
@@ -58,13 +59,17 @@ impl MqttClient {
 
     pub async fn subscribe(&self) -> Result<(), rumqttc::ClientError> {
         self.client
-            .subscribe(format!("{}/scan/arrive", self.topic_path), QoS::AtMostOnce)
+            .subscribe_many(vec![
+                SubscribeFilter::new(format!("{}/scan/arrive", self.topic_path), QoS::AtMostOnce),
+                SubscribeFilter::new(format!("{}/scan/depart", self.topic_path), QoS::AtMostOnce),
+            ])
             .await?;
 
         Ok(())
     }
 
     pub async fn event_loop(
+        &self,
         eventloop: &mut rumqttc::EventLoop,
         tx: broadcast::Sender<StateAnnouncement>,
     ) {
@@ -87,7 +92,15 @@ impl MqttClient {
                     rumqttc::Event::Incoming(rumqttc::Packet::SubAck(_)) => {
                         debug!("Subscription acknowledged");
                     }
-                    _ => {}
+                    rumqttc::Event::Incoming(rumqttc::Packet::ConnAck(_)) => {
+                        debug!("Connection acknowledged");
+                        if let Err(err) = self.subscribe().await {
+                            error!("Error subscribing to MQTT topics: {:?}", err);
+                        }
+                    }
+                    otherwise => {
+                        debug!("Received MQTT event: {:?}", otherwise);
+                    }
                 },
                 Err(e) => {
                     error!("Error polling MQTT event loop: {:?}", e);

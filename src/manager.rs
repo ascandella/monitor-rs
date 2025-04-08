@@ -44,9 +44,11 @@ impl Manager {
 
         let mut scanner = Scanner::new(rx, announce_tx, &self.devices);
 
+        let mqtt_client = self.mqtt_client.clone();
+
         // Handle incoming MQTT messages (e.g. arrival scan requests)
         tokio::task::spawn(async move {
-            MqttClient::event_loop(&mut self.mqtt_event_loop, tx).await;
+            mqtt_client.event_loop(&mut self.mqtt_event_loop, tx).await;
         });
 
         tokio::task::spawn(async move {
