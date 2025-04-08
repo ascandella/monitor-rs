@@ -5,11 +5,16 @@ use futures::StreamExt as _;
 use log::{debug, error, info, warn};
 use tokio::sync::broadcast;
 
-use crate::{config::BleDevice, messages::StateAnnouncement, scanner::Scanner};
+use crate::{
+    config::BleDevice,
+    messages::{DeviceAnnouncement, DevicePresence, StateAnnouncement},
+    mqtt::MqttClient,
+    scanner::Scanner,
+};
 
 pub struct Manager {
     adapter: btleplug::platform::Adapter,
-    mqtt_client: crate::mqtt::MqttClient,
+    mqtt_client: MqttClient,
     mqtt_event_loop: rumqttc::EventLoop,
     devices: Vec<BleDevice>,
 }
@@ -17,7 +22,7 @@ pub struct Manager {
 impl Manager {
     pub fn new(
         adapter: btleplug::platform::Adapter,
-        mqtt_client: crate::mqtt::MqttClient,
+        mqtt_client: MqttClient,
         mqtt_event_loop: rumqttc::EventLoop,
         devices: Vec<BleDevice>,
     ) -> Self {
@@ -33,19 +38,29 @@ impl Manager {
         self.adapter.start_scan(ScanFilter::default()).await?;
 
         let (tx, rx) = broadcast::channel(10);
+        let (announce_tx, announce_rx) = broadcast::channel(10);
+
         let btle_tx = tx.clone();
 
-        let mut scanner = Scanner::new(rx, &self.devices);
+        let mut scanner = Scanner::new(rx, announce_tx, &self.devices);
 
         // Handle incoming MQTT messages (e.g. arrival scan requests)
         tokio::task::spawn(async move {
-            crate::mqtt::MqttClient::event_loop(&mut self.mqtt_event_loop, tx).await;
+            MqttClient::event_loop(&mut self.mqtt_event_loop, tx).await;
         });
 
         tokio::task::spawn(async move {
             if let Err(err) = scanner.run().await {
                 error!("Error handling scanner events: {:?}", err);
             }
+            debug!("Done scanning devices");
+        });
+
+        tokio::task::spawn(async move {
+            if let Err(err) = announce_scan_results(announce_rx, &self.mqtt_client).await {
+                error!("Error handling scan results: {:?}", err);
+            }
+            debug!("Done announcing scan results");
         });
 
         // Run on a separate thread as these currently block
@@ -61,10 +76,41 @@ impl Manager {
         }
         debug!("Exiting manager event loop");
 
-        self.mqtt_client.disconnect().await?;
-
         Ok(())
     }
+}
+
+async fn announce_scan_results(
+    mut announce_rx: broadcast::Receiver<DeviceAnnouncement>,
+    mqtt_client: &MqttClient,
+) -> Result<(), Box<dyn std::error::Error>> {
+    debug!("Start announce scan results loop");
+    loop {
+        match announce_rx.recv().await {
+            Ok(msg) => match msg {
+                DeviceAnnouncement {
+                    presence: DevicePresence::Absent,
+                    name,
+                } => mqtt_client.announce_device(&name, 0).await?,
+                DeviceAnnouncement {
+                    presence: DevicePresence::Present(confidence),
+                    name,
+                } => {
+                    mqtt_client.announce_device(&name, confidence).await?;
+                }
+            },
+            Err(broadcast::error::RecvError::Closed) => {
+                debug!("Receiver closed");
+                break;
+            }
+            Err(broadcast::error::RecvError::Lagged(_)) => {
+                debug!("Receiver lagged");
+            }
+        }
+    }
+
+    mqtt_client.disconnect().await?;
+    Ok(())
 }
 
 async fn handle_btle_events(

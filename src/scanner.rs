@@ -3,10 +3,14 @@ use std::collections::HashMap;
 use log::{debug, info};
 use tokio::sync::broadcast;
 
-use crate::{config::BleDevice, messages::StateAnnouncement};
+use crate::{
+    config::BleDevice,
+    messages::{DeviceAnnouncement, StateAnnouncement},
+};
 
 pub struct Scanner {
     rx: broadcast::Receiver<StateAnnouncement>,
+    announce_rx: broadcast::Sender<DeviceAnnouncement>,
     device_map: HashMap<String, DeviceState>,
 }
 
@@ -23,7 +27,11 @@ enum DeviceSeen {
 }
 
 impl Scanner {
-    pub fn new(rx: broadcast::Receiver<StateAnnouncement>, devices: &[BleDevice]) -> Self {
+    pub fn new(
+        rx: broadcast::Receiver<StateAnnouncement>,
+        announce_rx: broadcast::Sender<DeviceAnnouncement>,
+        devices: &[BleDevice],
+    ) -> Self {
         let device_map = devices
             .iter()
             .map(|device| {
@@ -36,7 +44,11 @@ impl Scanner {
                 )
             })
             .collect::<HashMap<_, _>>();
-        Scanner { rx, device_map }
+        Scanner {
+            rx,
+            announce_rx,
+            device_map,
+        }
     }
 
     pub async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -72,6 +84,12 @@ impl Scanner {
 
     async fn scan_arrival(&mut self) {
         // TODO
+        self.announce_rx
+            .send(DeviceAnnouncement {
+                name: "Test".to_string(),
+                presence: crate::messages::DevicePresence::Present(100),
+            })
+            .unwrap();
         // Loop every every device we haven't seen recently, trigger a name
         // request
         unimplemented!("Start arrival scan");
