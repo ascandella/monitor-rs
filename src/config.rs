@@ -18,9 +18,26 @@ pub struct MqttConfig {
     pub keep_alive_seconds: Option<u64>,
 }
 
+#[derive(Deserialize, Debug)]
+pub enum Manufacturer {
+    Apple,
+    Google,
+}
+
+impl Manufacturer {
+    /// https://bitbucket.org/bluetooth-SIG/public/src/main/assigned_numbers/company_identifiers/company_identifiers.yaml
+    pub fn company_ids(&self) -> Vec<u16> {
+        match self {
+            Manufacturer::Apple => vec![0x004C],
+            Manufacturer::Google => vec![0x018E, 0x00E0],
+        }
+    }
+}
+
 #[allow(dead_code)]
 #[derive(Deserialize, Debug)]
 pub struct BleDevice {
     pub address: MacAddress,
     pub name: String,
+    pub manufacturer: Option<Manufacturer>,
 }

@@ -1,5 +1,7 @@
+use std::collections::HashSet;
+
 use btleplug::api::{Central as _, CentralEvent, Peripheral as _, ScanFilter};
-use futures::{StreamExt as _, executor::block_on};
+use futures::StreamExt as _;
 use log::{debug, error, info, warn};
 use tokio::sync::broadcast;
 
@@ -39,15 +41,15 @@ impl Manager {
         });
 
         // Run on a separate thread as these currently block
-        let btle_handle = std::thread::spawn(move || {
+        let btle_handle = tokio::task::spawn(async move {
             // TODO: Need to pass the ability to publish MQTT messages to this function
-            if let Err(err) = block_on(handle_btle_events(&self.adapter, rx, self.devices)) {
+            if let Err(err) = handle_btle_events(&self.adapter, rx, self.devices).await {
                 error!("Error handling BLE events: {:?}", err);
             }
             debug!("Done handling BLE events");
         });
 
-        if let Err(err) = btle_handle.join() {
+        if let Err(err) = btle_handle.await {
             error!("Error handling BLE events: {:?}", err);
         }
         debug!("Exiting manager event loop");
@@ -67,6 +69,17 @@ async fn handle_btle_events(
 
     let mut event_stream_closed = false;
 
+    let device_filters = devices
+        .iter()
+        .flat_map(|device| {
+            device
+                .manufacturer
+                .as_ref()
+                .map(|manufacturer| manufacturer.company_ids())
+        })
+        .flatten()
+        .collect::<HashSet<_>>();
+
     loop {
         if event_stream_closed {
             break;
@@ -77,7 +90,9 @@ async fn handle_btle_events(
                 match msg {
                     MqttAnnouncement::ScanArrive => {
                         info!("Received arrival scan request");
-                        adapter.start_scan(ScanFilter::default()).await?;
+                        if let Err(err) = adapter.start_scan(ScanFilter::default()).await {
+                            error!("Error starting scan: {:?}", err);
+                        }
                     }
                     MqttAnnouncement::ScanDepart => {
                         info!("Received departure request");
@@ -93,7 +108,7 @@ async fn handle_btle_events(
                         let peripheral = adapter.peripheral(&id).await?;
                         let properties = peripheral.properties().await?;
 
-                        if let Some(_device) = matching_device(&devices, properties) {
+                        if matching_device(&device_filters, properties) {
                             // TODO: send MQTT message
                             // Start a timer for when it falls out of announcement
                             unimplemented!("Need to handle this");
@@ -113,29 +128,32 @@ async fn handle_btle_events(
 }
 
 fn matching_device(
-    devices: &[BleDevice],
+    company_ids: &HashSet<u16>,
     properties: Option<btleplug::api::PeripheralProperties>,
-) -> Option<&BleDevice> {
+) -> bool {
     match properties {
         Some(props) => {
             let name = props.local_name.unwrap_or_default();
-            if let Some(matching_device) = devices
-                .iter()
-                .find(|d| d.address.bytes() == props.address.as_ref())
-            {
-                info!("Discovered device {} ({})", matching_device.address, name);
-                Some(matching_device)
+            let manufacturer_data = props.manufacturer_data;
+            let manufacturer_id = manufacturer_data.keys().find(|id| company_ids.contains(id));
+
+            if let Some(manufacturer_id) = manufacturer_id {
+                info!(
+                    "Discovered device passing manufacturer {} ({}) [{}]",
+                    props.address, name, manufacturer_id
+                );
+                true
             } else {
                 debug!(
-                    "Discovered device but not interested in MAC {} ({})",
-                    props.address, name,
+                    "Discovered device but not interested in manufacturer {} ({})",
+                    props.address, name
                 );
-                None
+                false
             }
         }
         None => {
             warn!("No properties for discovered device");
-            None
+            false
         }
     }
 }
