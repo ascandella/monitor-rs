@@ -92,11 +92,17 @@ impl Scanner {
             .unwrap();
         // Loop every every device we haven't seen recently, trigger a name
         // request
-        unimplemented!("Start arrival scan");
+        // unimplemented!("Start arrival scan");
     }
 
     async fn scan_departure(&mut self) {
         // TODO
-        unimplemented!("Start departure scan");
+        self.announce_rx
+            .send(DeviceAnnouncement {
+                name: "Test".to_string(),
+                presence: crate::messages::DevicePresence::Absent,
+            })
+            .unwrap();
+        // unimplemented!("Start departure scan");
     }
 }
