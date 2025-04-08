@@ -110,8 +110,6 @@ impl Scanner {
                             self.scan_arrival()
                                 .await
                                 .context("Failed to scan for device trigger")?;
-                        } else {
-                            debug!("Device trigger received too soon, ignoring");
                         }
                     }
                 },
