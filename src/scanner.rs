@@ -4,22 +4,22 @@ use tokio::sync::broadcast;
 use crate::mqtt::MqttAnnouncement;
 
 pub struct Scanner {
-    mqtt_rx: broadcast::Receiver<MqttAnnouncement>,
+    rx: broadcast::Receiver<MqttAnnouncement>,
 }
 
 impl Scanner {
     pub fn new(rx: broadcast::Receiver<MqttAnnouncement>) -> Self {
-        Scanner { mqtt_rx: rx }
+        Scanner { rx }
     }
 
     pub async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         loop {
-            match self.mqtt_rx.recv().await {
+            match self.rx.recv().await {
                 // Handle incoming MQTT messages (e.g. arrival scan requests)
                 Ok(msg) => match msg {
                     MqttAnnouncement::ScanArrive => {
                         info!("Received arrival scan request");
-                        todo!("Start arrivel scan");
+                        todo!("Start arrival scan");
                     }
                     MqttAnnouncement::ScanDepart => {
                         info!("Received departure request");

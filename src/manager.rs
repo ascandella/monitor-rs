@@ -5,7 +5,7 @@ use futures::StreamExt as _;
 use log::{debug, error, info, warn};
 use tokio::sync::broadcast;
 
-use crate::{config::BleDevice, scanner::Scanner};
+use crate::{config::BleDevice, mqtt::MqttAnnouncement, scanner::Scanner};
 
 pub struct Manager {
     adapter: btleplug::platform::Adapter,
@@ -32,14 +32,15 @@ impl Manager {
     pub async fn run_loop(mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.adapter.start_scan(ScanFilter::default()).await?;
 
-        let (mqtt_tx, mqtt_rx) = broadcast::channel(10);
+        let (tx, rx) = broadcast::channel(10);
+        let btle_tx = tx.clone();
 
-        let mut scanner = Scanner::new(mqtt_rx);
+        let mut scanner = Scanner::new(rx);
 
         // Handle incoming MQTT messages (e.g. arrival scan requests)
         tokio::task::spawn(async move {
             // TODO: Need to pass ability to trigger a BTLE scan to the event loop
-            crate::mqtt::MqttClient::event_loop(&mut self.mqtt_event_loop, mqtt_tx).await;
+            crate::mqtt::MqttClient::event_loop(&mut self.mqtt_event_loop, tx).await;
         });
 
         tokio::task::spawn(async move {
@@ -51,7 +52,7 @@ impl Manager {
         // Run on a separate thread as these currently block
         let btle_handle = tokio::task::spawn(async move {
             // TODO: Need to pass the ability to publish MQTT messages to this function
-            if let Err(err) = handle_btle_events(&self.adapter, self.devices).await {
+            if let Err(err) = handle_btle_events(&self.adapter, self.devices, btle_tx).await {
                 error!("Error handling BLE events: {:?}", err);
             }
             debug!("Done handling BLE events");
@@ -71,6 +72,7 @@ impl Manager {
 async fn handle_btle_events(
     adapter: &btleplug::platform::Adapter,
     devices: Vec<BleDevice>,
+    tx: broadcast::Sender<MqttAnnouncement>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut events = adapter.events().await?;
 
@@ -97,9 +99,9 @@ async fn handle_btle_events(
                 let properties = peripheral.properties().await?;
 
                 if matching_device(&device_filters, properties) {
-                    // TODO: send MQTT message
-                    // Start a timer for when it falls out of announcement
-                    unimplemented!("Need to handle this");
+                    if let Err(err) = tx.send(MqttAnnouncement::ScanArrive) {
+                        error!("Error sending scan arrival message: {:?}", err);
+                    }
                 }
             }
             Some(_) => {}
