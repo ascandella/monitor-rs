@@ -5,11 +5,16 @@ use futures::StreamExt as _;
 use log::{debug, error, info, warn};
 use tokio::sync::broadcast;
 
-use crate::{config::BleDevice, mqtt::MqttAnnouncement};
+use crate::{
+    config::BleDevice,
+    messages::{DeviceAnnouncement, DevicePresence, StateAnnouncement},
+    mqtt::MqttClient,
+    scanner::Scanner,
+};
 
 pub struct Manager {
     adapter: btleplug::platform::Adapter,
-    mqtt_client: crate::mqtt::MqttClient,
+    mqtt_client: MqttClient,
     mqtt_event_loop: rumqttc::EventLoop,
     devices: Vec<BleDevice>,
 }
@@ -17,7 +22,7 @@ pub struct Manager {
 impl Manager {
     pub fn new(
         adapter: btleplug::platform::Adapter,
-        mqtt_client: crate::mqtt::MqttClient,
+        mqtt_client: MqttClient,
         mqtt_event_loop: rumqttc::EventLoop,
         devices: Vec<BleDevice>,
     ) -> Self {
@@ -33,17 +38,34 @@ impl Manager {
         self.adapter.start_scan(ScanFilter::default()).await?;
 
         let (tx, rx) = broadcast::channel(10);
+        let (announce_tx, announce_rx) = broadcast::channel(10);
+
+        let btle_tx = tx.clone();
+
+        let mut scanner = Scanner::new(rx, announce_tx, &self.devices);
 
         // Handle incoming MQTT messages (e.g. arrival scan requests)
         tokio::task::spawn(async move {
-            // TODO: Need to pass ability to trigger a BTLE scan to the event loop
-            crate::mqtt::MqttClient::event_loop(&mut self.mqtt_event_loop, tx).await;
+            MqttClient::event_loop(&mut self.mqtt_event_loop, tx).await;
+        });
+
+        tokio::task::spawn(async move {
+            if let Err(err) = scanner.run().await {
+                error!("Error handling scanner events: {:?}", err);
+            }
+            debug!("Done scanning devices");
+        });
+
+        tokio::task::spawn(async move {
+            if let Err(err) = announce_scan_results(announce_rx, &self.mqtt_client).await {
+                error!("Error handling scan results: {:?}", err);
+            }
+            debug!("Done announcing scan results");
         });
 
         // Run on a separate thread as these currently block
         let btle_handle = tokio::task::spawn(async move {
-            // TODO: Need to pass the ability to publish MQTT messages to this function
-            if let Err(err) = handle_btle_events(&self.adapter, rx, self.devices).await {
+            if let Err(err) = handle_btle_events(&self.adapter, self.devices, btle_tx).await {
                 error!("Error handling BLE events: {:?}", err);
             }
             debug!("Done handling BLE events");
@@ -54,16 +76,51 @@ impl Manager {
         }
         debug!("Exiting manager event loop");
 
-        self.mqtt_client.disconnect().await?;
-
         Ok(())
     }
 }
 
+async fn announce_scan_results(
+    mut announce_rx: broadcast::Receiver<DeviceAnnouncement>,
+    mqtt_client: &MqttClient,
+) -> Result<(), Box<dyn std::error::Error>> {
+    debug!("Start announce scan results loop");
+    loop {
+        match announce_rx.recv().await {
+            Ok(msg) => match msg {
+                DeviceAnnouncement {
+                    presence: DevicePresence::Absent,
+                    mac_address,
+                    name,
+                } => mqtt_client.announce_device(&name, mac_address, 0).await?,
+                DeviceAnnouncement {
+                    presence: DevicePresence::Present(confidence),
+                    mac_address,
+                    name,
+                } => {
+                    mqtt_client
+                        .announce_device(&name, mac_address, confidence)
+                        .await?;
+                }
+            },
+            Err(broadcast::error::RecvError::Closed) => {
+                debug!("Receiver closed");
+                break;
+            }
+            Err(broadcast::error::RecvError::Lagged(_)) => {
+                debug!("Receiver lagged");
+            }
+        }
+    }
+
+    mqtt_client.disconnect().await?;
+    Ok(())
+}
+
 async fn handle_btle_events(
     adapter: &btleplug::platform::Adapter,
-    mut rx: broadcast::Receiver<crate::mqtt::MqttAnnouncement>,
     devices: Vec<BleDevice>,
+    tx: broadcast::Sender<StateAnnouncement>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut events = adapter.events().await?;
 
@@ -84,44 +141,22 @@ async fn handle_btle_events(
         if event_stream_closed {
             break;
         }
-        tokio::select! {
-            // Handle incoming MQTT messages (e.g. arrival scan requests)
-            Ok(msg) = rx.recv() => {
-                match msg {
-                    MqttAnnouncement::ScanArrive => {
-                        info!("Received arrival scan request");
-                        if let Err(err) = adapter.start_scan(ScanFilter::default()).await {
-                            error!("Error starting scan: {:?}", err);
-                        }
-                    }
-                    MqttAnnouncement::ScanDepart => {
-                        info!("Received departure request");
-                        unimplemented!("Need to handle this");
-                    }
-                }
-            }
-            // TODO: Selection channel for timers
-            // Handle BLE events
-            event = events.next() => {
-                match event {
-                    Some(CentralEvent::DeviceDiscovered(id)) => {
-                        let peripheral = adapter.peripheral(&id).await?;
-                        let properties = peripheral.properties().await?;
+        match events.next().await {
+            Some(CentralEvent::DeviceDiscovered(id)) => {
+                let peripheral = adapter.peripheral(&id).await?;
+                let properties = peripheral.properties().await?;
 
-                        if matching_device(&device_filters, properties) {
-                            // TODO: send MQTT message
-                            // Start a timer for when it falls out of announcement
-                            unimplemented!("Need to handle this");
-                        }
-                    }
-                    Some(_) => {}
-                    None => {
-                        warn!("No more BLE events");
-                        event_stream_closed = true;
+                if matching_device(&device_filters, properties) {
+                    if let Err(err) = tx.send(StateAnnouncement::DeviceTrigger) {
+                        error!("Error sending scan arrival message: {:?}", err);
                     }
                 }
             }
-            else => {}
+            Some(_) => {}
+            None => {
+                warn!("No more BLE events");
+                event_stream_closed = true;
+            }
         }
     }
     Ok(())
@@ -133,13 +168,16 @@ fn matching_device(
 ) -> bool {
     match properties {
         Some(props) => {
-            let name = props.local_name.unwrap_or_default();
+            let name = props
+                .local_name
+                .map(|name| format!(" name: {}", name))
+                .unwrap_or_default();
             let manufacturer_data = props.manufacturer_data;
             let manufacturer_id = manufacturer_data.keys().find(|id| company_ids.contains(id));
 
             if let Some(manufacturer_id) = manufacturer_id {
                 info!(
-                    "Discovered device passing manufacturer {} ({}) [{}]",
+                    "Discovered device passing manufacturer filter {}{} [{}]",
                     props.address, name, manufacturer_id
                 );
                 true
