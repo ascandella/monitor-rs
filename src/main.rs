@@ -9,6 +9,7 @@ use std::io::Read as _;
 mod config;
 mod manager;
 mod mqtt;
+mod scanner;
 
 #[derive(Parser, Debug)]
 struct Args {

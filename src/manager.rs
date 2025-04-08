@@ -5,7 +5,7 @@ use futures::StreamExt as _;
 use log::{debug, error, info, warn};
 use tokio::sync::broadcast;
 
-use crate::{config::BleDevice, mqtt::MqttAnnouncement};
+use crate::{config::BleDevice, scanner::Scanner};
 
 pub struct Manager {
     adapter: btleplug::platform::Adapter,
@@ -32,18 +32,26 @@ impl Manager {
     pub async fn run_loop(mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.adapter.start_scan(ScanFilter::default()).await?;
 
-        let (tx, rx) = broadcast::channel(10);
+        let (mqtt_tx, mqtt_rx) = broadcast::channel(10);
+
+        let mut scanner = Scanner::new(mqtt_rx);
 
         // Handle incoming MQTT messages (e.g. arrival scan requests)
         tokio::task::spawn(async move {
             // TODO: Need to pass ability to trigger a BTLE scan to the event loop
-            crate::mqtt::MqttClient::event_loop(&mut self.mqtt_event_loop, tx).await;
+            crate::mqtt::MqttClient::event_loop(&mut self.mqtt_event_loop, mqtt_tx).await;
+        });
+
+        tokio::task::spawn(async move {
+            if let Err(err) = scanner.run().await {
+                error!("Error handling scanner events: {:?}", err);
+            }
         });
 
         // Run on a separate thread as these currently block
         let btle_handle = tokio::task::spawn(async move {
             // TODO: Need to pass the ability to publish MQTT messages to this function
-            if let Err(err) = handle_btle_events(&self.adapter, rx, self.devices).await {
+            if let Err(err) = handle_btle_events(&self.adapter, self.devices).await {
                 error!("Error handling BLE events: {:?}", err);
             }
             debug!("Done handling BLE events");
@@ -62,7 +70,6 @@ impl Manager {
 
 async fn handle_btle_events(
     adapter: &btleplug::platform::Adapter,
-    mut rx: broadcast::Receiver<crate::mqtt::MqttAnnouncement>,
     devices: Vec<BleDevice>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut events = adapter.events().await?;
@@ -84,44 +91,22 @@ async fn handle_btle_events(
         if event_stream_closed {
             break;
         }
-        tokio::select! {
-            // Handle incoming MQTT messages (e.g. arrival scan requests)
-            Ok(msg) = rx.recv() => {
-                match msg {
-                    MqttAnnouncement::ScanArrive => {
-                        info!("Received arrival scan request");
-                        if let Err(err) = adapter.start_scan(ScanFilter::default()).await {
-                            error!("Error starting scan: {:?}", err);
-                        }
-                    }
-                    MqttAnnouncement::ScanDepart => {
-                        info!("Received departure request");
-                        unimplemented!("Need to handle this");
-                    }
-                }
-            }
-            // TODO: Selection channel for timers
-            // Handle BLE events
-            event = events.next() => {
-                match event {
-                    Some(CentralEvent::DeviceDiscovered(id)) => {
-                        let peripheral = adapter.peripheral(&id).await?;
-                        let properties = peripheral.properties().await?;
+        match events.next().await {
+            Some(CentralEvent::DeviceDiscovered(id)) => {
+                let peripheral = adapter.peripheral(&id).await?;
+                let properties = peripheral.properties().await?;
 
-                        if matching_device(&device_filters, properties) {
-                            // TODO: send MQTT message
-                            // Start a timer for when it falls out of announcement
-                            unimplemented!("Need to handle this");
-                        }
-                    }
-                    Some(_) => {}
-                    None => {
-                        warn!("No more BLE events");
-                        event_stream_closed = true;
-                    }
+                if matching_device(&device_filters, properties) {
+                    // TODO: send MQTT message
+                    // Start a timer for when it falls out of announcement
+                    unimplemented!("Need to handle this");
                 }
             }
-            else => {}
+            Some(_) => {}
+            None => {
+                warn!("No more BLE events");
+                event_stream_closed = true;
+            }
         }
     }
     Ok(())
