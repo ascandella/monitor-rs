@@ -35,7 +35,7 @@ impl Manager {
         let (tx, rx) = broadcast::channel(10);
         let btle_tx = tx.clone();
 
-        let mut scanner = Scanner::new(rx);
+        let mut scanner = Scanner::new(rx, &self.devices);
 
         // Handle incoming MQTT messages (e.g. arrival scan requests)
         tokio::task::spawn(async move {
@@ -99,7 +99,7 @@ async fn handle_btle_events(
                 let properties = peripheral.properties().await?;
 
                 if matching_device(&device_filters, properties) {
-                    if let Err(err) = tx.send(MqttAnnouncement::ScanArrive) {
+                    if let Err(err) = tx.send(MqttAnnouncement::DeviceTrigger) {
                         error!("Error sending scan arrival message: {:?}", err);
                     }
                 }

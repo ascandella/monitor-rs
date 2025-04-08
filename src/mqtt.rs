@@ -13,6 +13,7 @@ pub struct MqttClient {
 
 #[derive(Clone, Debug)]
 pub enum MqttAnnouncement {
+    DeviceTrigger,
     ScanArrive,
     ScanDepart,
 }
