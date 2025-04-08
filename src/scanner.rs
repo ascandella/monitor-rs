@@ -14,6 +14,7 @@ use crate::{
 pub struct Scanner {
     rx: broadcast::Receiver<StateAnnouncement>,
     device_seen_debounce: std::time::Duration,
+    device_trigger_debounce: std::time::Duration,
     announce_rx: broadcast::Sender<DeviceAnnouncement>,
     device_map: HashMap<String, DeviceState>,
 }
@@ -54,12 +55,14 @@ impl Scanner {
             announce_rx,
             // TODO: make this configurable
             device_seen_debounce: std::time::Duration::from_secs(60),
+            device_trigger_debounce: std::time::Duration::from_secs(60),
             device_map,
         }
     }
 
     pub async fn run(&mut self) -> anyhow::Result<()> {
         debug!("Start scan loop {:?}", self.device_map);
+        let mut last_trigger: Option<std::time::SystemTime> = None;
         loop {
             match self.rx.recv().await {
                 // Handle incoming MQTT messages (e.g. arrival scan requests)
@@ -77,10 +80,26 @@ impl Scanner {
                             .context("Failed to scan departure")?;
                     }
                     StateAnnouncement::DeviceTrigger => {
-                        debug!("Received device trigger request");
-                        self.scan_arrival()
-                            .await
-                            .context("Failed to scan for device trigger")?;
+                        let should_scan_devices = match last_trigger {
+                            Some(last_trigger) => {
+                                if last_trigger.elapsed().unwrap() < self.device_trigger_debounce {
+                                    debug!("Device trigger received too soon, ignoring");
+                                    false
+                                } else {
+                                    true
+                                }
+                            }
+                            None => true,
+                        };
+                        if should_scan_devices {
+                            info!("Received device trigger request");
+                            last_trigger = Some(std::time::SystemTime::now());
+                            self.scan_arrival()
+                                .await
+                                .context("Failed to scan for device trigger")?;
+                        } else {
+                            debug!("Device trigger received too soon, ignoring");
+                        }
                     }
                 },
                 Err(broadcast::error::RecvError::Closed) => {
