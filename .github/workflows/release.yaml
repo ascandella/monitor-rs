@@ -23,8 +23,8 @@ jobs:
 
       - name: Install libdbus development packages
         run: |
-          apt-get update
-          apt-get install -y libdbus-1-dev
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev
           
       - name: Compile
         uses: actions-rs/cargo@v1
