@@ -71,12 +71,11 @@ async fn handle_btle_events(
 
     let device_filters = devices
         .iter()
-        .filter_map(|device| {
-            if let Some(manufacturer) = device.manufacturer.as_ref() {
-                Some(manufacturer.company_ids())
-            } else {
-                None
-            }
+        .flat_map(|device| {
+            device
+                .manufacturer
+                .as_ref()
+                .map(|manufacturer| manufacturer.company_ids())
         })
         .flatten()
         .collect::<HashSet<_>>();
