@@ -8,6 +8,7 @@ use std::io::Read as _;
 
 mod config;
 mod manager;
+mod messages;
 mod mqtt;
 mod scanner;
 

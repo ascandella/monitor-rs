@@ -3,10 +3,10 @@ use std::collections::HashMap;
 use log::{debug, info};
 use tokio::sync::broadcast;
 
-use crate::{config::BleDevice, mqtt::MqttAnnouncement};
+use crate::{config::BleDevice, messages::StateAnnouncement};
 
 pub struct Scanner {
-    rx: broadcast::Receiver<MqttAnnouncement>,
+    rx: broadcast::Receiver<StateAnnouncement>,
     device_map: HashMap<String, DeviceState>,
 }
 
@@ -23,7 +23,7 @@ enum DeviceSeen {
 }
 
 impl Scanner {
-    pub fn new(rx: broadcast::Receiver<MqttAnnouncement>, devices: &[BleDevice]) -> Self {
+    pub fn new(rx: broadcast::Receiver<StateAnnouncement>, devices: &[BleDevice]) -> Self {
         let device_map = devices
             .iter()
             .map(|device| {
@@ -45,17 +45,17 @@ impl Scanner {
             match self.rx.recv().await {
                 // Handle incoming MQTT messages (e.g. arrival scan requests)
                 Ok(msg) => match msg {
-                    MqttAnnouncement::ScanArrive => {
+                    StateAnnouncement::ScanArrive => {
                         info!("Received arrival scan request");
-                        unimplemented!("Start arrival scan");
+                        self.scan_arrival().await;
                     }
-                    MqttAnnouncement::ScanDepart => {
+                    StateAnnouncement::ScanDepart => {
                         info!("Received departure request");
-                        unimplemented!("Need to handle this");
+                        self.scan_departure().await;
                     }
-                    MqttAnnouncement::DeviceTrigger => {
+                    StateAnnouncement::DeviceTrigger => {
                         info!("Received device trigger request");
-                        unimplemented!("Need to handle this");
+                        self.scan_arrival().await;
                     }
                 },
                 Err(broadcast::error::RecvError::Closed) => {
@@ -68,5 +68,17 @@ impl Scanner {
             }
         }
         Ok(())
+    }
+
+    async fn scan_arrival(&mut self) {
+        // TODO
+        // Loop every every device we haven't seen recently, trigger a name
+        // request
+        unimplemented!("Start arrival scan");
+    }
+
+    async fn scan_departure(&mut self) {
+        // TODO
+        unimplemented!("Start departure scan");
     }
 }

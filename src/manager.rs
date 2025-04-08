@@ -5,7 +5,7 @@ use futures::StreamExt as _;
 use log::{debug, error, info, warn};
 use tokio::sync::broadcast;
 
-use crate::{config::BleDevice, mqtt::MqttAnnouncement, scanner::Scanner};
+use crate::{config::BleDevice, messages::StateAnnouncement, scanner::Scanner};
 
 pub struct Manager {
     adapter: btleplug::platform::Adapter,
@@ -39,7 +39,6 @@ impl Manager {
 
         // Handle incoming MQTT messages (e.g. arrival scan requests)
         tokio::task::spawn(async move {
-            // TODO: Need to pass ability to trigger a BTLE scan to the event loop
             crate::mqtt::MqttClient::event_loop(&mut self.mqtt_event_loop, tx).await;
         });
 
@@ -51,7 +50,6 @@ impl Manager {
 
         // Run on a separate thread as these currently block
         let btle_handle = tokio::task::spawn(async move {
-            // TODO: Need to pass the ability to publish MQTT messages to this function
             if let Err(err) = handle_btle_events(&self.adapter, self.devices, btle_tx).await {
                 error!("Error handling BLE events: {:?}", err);
             }
@@ -72,7 +70,7 @@ impl Manager {
 async fn handle_btle_events(
     adapter: &btleplug::platform::Adapter,
     devices: Vec<BleDevice>,
-    tx: broadcast::Sender<MqttAnnouncement>,
+    tx: broadcast::Sender<StateAnnouncement>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut events = adapter.events().await?;
 
@@ -99,7 +97,7 @@ async fn handle_btle_events(
                 let properties = peripheral.properties().await?;
 
                 if matching_device(&device_filters, properties) {
-                    if let Err(err) = tx.send(MqttAnnouncement::DeviceTrigger) {
+                    if let Err(err) = tx.send(StateAnnouncement::DeviceTrigger) {
                         error!("Error sending scan arrival message: {:?}", err);
                     }
                 }
@@ -120,13 +118,16 @@ fn matching_device(
 ) -> bool {
     match properties {
         Some(props) => {
-            let name = props.local_name.unwrap_or_default();
+            let name = props
+                .local_name
+                .map(|name| format!(" name: {}", name))
+                .unwrap_or_default();
             let manufacturer_data = props.manufacturer_data;
             let manufacturer_id = manufacturer_data.keys().find(|id| company_ids.contains(id));
 
             if let Some(manufacturer_id) = manufacturer_id {
                 info!(
-                    "Discovered device passing manufacturer {} ({}) [{}]",
+                    "Discovered device passing manufacturer filter {}{} [{}]",
                     props.address, name, manufacturer_id
                 );
                 true

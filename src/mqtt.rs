@@ -4,18 +4,11 @@ use log::{debug, error};
 use rumqttc::{MqttOptions, QoS};
 use tokio::sync::broadcast;
 
-use crate::config;
+use crate::{config, messages::StateAnnouncement};
 
 pub struct MqttClient {
     client: rumqttc::AsyncClient,
     topic_path: String,
-}
-
-#[derive(Clone, Debug)]
-pub enum MqttAnnouncement {
-    DeviceTrigger,
-    ScanArrive,
-    ScanDepart,
 }
 
 impl MqttClient {
@@ -59,7 +52,7 @@ impl MqttClient {
 
     pub async fn event_loop(
         eventloop: &mut rumqttc::EventLoop,
-        tx: broadcast::Sender<MqttAnnouncement>,
+        tx: broadcast::Sender<StateAnnouncement>,
     ) {
         loop {
             match eventloop.poll().await {
@@ -70,8 +63,8 @@ impl MqttClient {
                         debug!("Received MQTT message on topic {}: {:?}", p.topic, payload);
 
                         let message = match p.topic {
-                            t if t.ends_with("/arrive") => MqttAnnouncement::ScanArrive,
-                            _ => MqttAnnouncement::ScanDepart,
+                            t if t.ends_with("/arrive") => StateAnnouncement::ScanArrive,
+                            _ => StateAnnouncement::ScanDepart,
                         };
 
                         if let Err(err) = tx.send(message) {
