@@ -51,7 +51,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // get the first bluetooth adapter
     let adapters = bt_manager.adapters().await?;
-    let central = adapters.into_iter().next().unwrap();
+    let central = adapters.into_iter().next().ok_or("No Bluetooth adapter found")?;
 
     info!("Devices initialized, starting event loop");
 

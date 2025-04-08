@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use anyhow::Context as _;
 use log::{debug, error, info};
 use rumqttc::{MqttOptions, QoS, SubscribeFilter};
 use serde::Serialize;
@@ -112,7 +113,7 @@ impl MqttClient {
         name: &str,
         mac_address: String,
         confidence: u8,
-    ) -> Result<(), rumqttc::ClientError> {
+    ) -> anyhow::Result<()> {
         info!(
             "Announcing device {} (confidence: {}) on MQTT",
             name, confidence
@@ -125,15 +126,20 @@ impl MqttClient {
             confidence,
             retained: false,
         };
+
         let channel_name = sanitize_name(name);
+
         self.client
             .publish(
                 format!("{}/{}/{}", self.topic_path, self.publisher_id, channel_name),
                 QoS::AtMostOnce,
                 false,
-                serde_json::to_string(&message).unwrap(),
+                serde_json::to_string(&message).context("Failed to serialize MQTT message")?,
             )
             .await
+            .context("Failed to publish MQTT message")?;
+
+        Ok(())
     }
 
     pub async fn disconnect(&self) -> Result<(), rumqttc::ClientError> {

@@ -80,16 +80,27 @@ impl Scanner {
                             .context("Failed to scan departure")?;
                     }
                     StateAnnouncement::DeviceTrigger => {
-                        let should_scan_devices = match last_trigger {
-                            Some(last_trigger) => {
-                                if last_trigger.elapsed().unwrap() < self.device_trigger_debounce {
+                        let should_scan_devices = match last_trigger.map(|t| t.elapsed()) {
+                            Some(Ok(duration)) => {
+                                if duration > self.device_trigger_debounce {
+                                    debug!("Device trigger received after {:?}", duration);
+                                    true
+                                } else {
                                     debug!("Device trigger received too soon, ignoring");
                                     false
-                                } else {
-                                    true
                                 }
                             }
-                            None => true,
+                            Some(Err(err)) => {
+                                error!(
+                                    "Unable to calculate duration since last trigger: {:?}",
+                                    err
+                                );
+                                true
+                            }
+                            None => {
+                                debug!("Device trigger received, no previous trigger time");
+                                true
+                            }
                         };
                         if should_scan_devices {
                             info!("Received device trigger request");
