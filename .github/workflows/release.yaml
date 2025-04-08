@@ -30,7 +30,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --target=${{ matrix.target }}
+          args: --release --target=${{ matrix.platform.target }}
 
       - name: Publish artifacts and release
         uses: houseabsolute/actions-rust-release@v0
