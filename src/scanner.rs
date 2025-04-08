@@ -124,24 +124,7 @@ impl Scanner {
             };
 
             if should_scan {
-                if is_device_present(device_info).await? {
-                    device_info.seen = DeviceSeen::Seen(now);
-                    announce_device(
-                        &self.announce_rx,
-                        name,
-                        &device_info.mac_address,
-                        crate::messages::DevicePresence::Present(100),
-                    )?;
-                } else {
-                    debug!("Device {} is not present", name);
-                    device_info.seen = DeviceSeen::NotSeen;
-                    announce_device(
-                        &self.announce_rx,
-                        name,
-                        &device_info.mac_address,
-                        crate::messages::DevicePresence::Absent,
-                    )?;
-                }
+                scan_device(name, device_info, &self.announce_rx).await?;
             }
         }
 
@@ -150,29 +133,38 @@ impl Scanner {
 
     async fn scan_departure(&mut self) -> anyhow::Result<()> {
         for (name, device_info) in self.device_map.iter_mut() {
-            let now = std::time::SystemTime::now();
-            if is_device_present(device_info).await? {
-                device_info.seen = DeviceSeen::Seen(now);
-                announce_device(
-                    &self.announce_rx,
-                    name,
-                    &device_info.mac_address,
-                    crate::messages::DevicePresence::Present(100),
-                )?;
-            } else {
-                debug!("Device {} is not present", name);
-                device_info.seen = DeviceSeen::NotSeen;
-                announce_device(
-                    &self.announce_rx,
-                    name,
-                    &device_info.mac_address,
-                    crate::messages::DevicePresence::Absent,
-                )?;
-            }
+            scan_device(name, device_info, &self.announce_rx).await?;
         }
 
         Ok(())
     }
+}
+
+async fn scan_device(
+    name: &str,
+    device_info: &mut DeviceState,
+    announce_rx: &broadcast::Sender<DeviceAnnouncement>,
+) -> anyhow::Result<()> {
+    let now = std::time::SystemTime::now();
+    if is_device_present(device_info).await? {
+        device_info.seen = DeviceSeen::Seen(now);
+        announce_device(
+            announce_rx,
+            name,
+            &device_info.mac_address,
+            crate::messages::DevicePresence::Present(100),
+        )?;
+    } else {
+        debug!("Device {} is not present", name);
+        device_info.seen = DeviceSeen::NotSeen;
+        announce_device(
+            announce_rx,
+            name,
+            &device_info.mac_address,
+            crate::messages::DevicePresence::Absent,
+        )?;
+    }
+    Ok(())
 }
 
 fn announce_device(
