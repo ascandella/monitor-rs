@@ -20,15 +20,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install libdbus development packages
+        run: |
+          apt-get update
+          apt-get install -y libdbus-1-dev
           
-      - name: Compile and release
-        uses: rust-build/rust-build.action@v1.4.5
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Compile
+        uses: actions-rs/cargo@v1
         with:
-          PRE_BUILD: apt-get update && apt-get install -y libdbus-1-dev
-          RUSTTARGET: ${{ matrix.target }}
-          EXTRA_FILES: "README.md"
+          command: build
+          args: --release --target=${{ matrix.target }}
 
       - name: Publish artifacts and release
         uses: houseabsolute/actions-rust-release@v0
