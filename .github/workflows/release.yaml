@@ -26,6 +26,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libdbus-1-dev
           
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.platform.target }}
+          override: true
+          
       - name: Compile
         uses: actions-rs/cargo@v1
         with:
