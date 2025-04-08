@@ -90,13 +90,17 @@ async fn announce_scan_results(
             Ok(msg) => match msg {
                 DeviceAnnouncement {
                     presence: DevicePresence::Absent,
+                    mac_address,
                     name,
-                } => mqtt_client.announce_device(&name, 0).await?,
+                } => mqtt_client.announce_device(&name, mac_address, 0).await?,
                 DeviceAnnouncement {
                     presence: DevicePresence::Present(confidence),
+                    mac_address,
                     name,
                 } => {
-                    mqtt_client.announce_device(&name, confidence).await?;
+                    mqtt_client
+                        .announce_device(&name, mac_address, confidence)
+                        .await?;
                 }
             },
             Err(broadcast::error::RecvError::Closed) => {

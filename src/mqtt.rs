@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use log::{debug, error};
+use log::{debug, error, info};
 use rumqttc::{MqttOptions, QoS};
 use serde::Serialize;
 use tokio::sync::broadcast;
@@ -16,6 +16,8 @@ pub struct MqttClient {
 #[derive(Debug, Serialize)]
 struct DeviceMqttMessage {
     name: String,
+    #[serde(rename = "id")]
+    mac_address: String,
     confidence: u8,
     retained: bool,
 }
@@ -97,9 +99,10 @@ impl MqttClient {
     pub async fn announce_device(
         &self,
         name: &str,
+        mac_address: String,
         confidence: u8,
     ) -> Result<(), rumqttc::ClientError> {
-        debug!(
+        info!(
             "Announcing device {} (confidence: {}) on MQTT",
             name, confidence
         );
@@ -107,6 +110,7 @@ impl MqttClient {
         // b"{\"id\":\"<mac address>\",\"confidence\":\"0\",\"name\":\"<name>\",\"manufacturer\":\"Apple Inc\",\"type\":\"KNOWN_MAC\",\"retained\":\"false\",\"timestamp\":\"2025-04-06T13:23:39-0700\",\"version\":\"0.2.200\"}"
         let message = DeviceMqttMessage {
             name: name.to_string(),
+            mac_address,
             confidence,
             retained: false,
         };

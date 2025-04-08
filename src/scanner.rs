@@ -44,6 +44,7 @@ impl Scanner {
                 )
             })
             .collect::<HashMap<_, _>>();
+
         Scanner {
             rx,
             announce_rx,
@@ -66,7 +67,7 @@ impl Scanner {
                         self.scan_departure().await;
                     }
                     StateAnnouncement::DeviceTrigger => {
-                        info!("Received device trigger request");
+                        debug!("Received device trigger request");
                         self.scan_arrival().await;
                     }
                 },
@@ -83,10 +84,13 @@ impl Scanner {
     }
 
     async fn scan_arrival(&mut self) {
+        let (name, device_info) = self.device_map.iter_mut().next().unwrap();
+        device_info.seen = DeviceSeen::Seen(std::time::SystemTime::now());
         // TODO
         self.announce_rx
             .send(DeviceAnnouncement {
-                name: "Test".to_string(),
+                name: name.to_string(),
+                mac_address: device_info.mac_address.clone(),
                 presence: crate::messages::DevicePresence::Present(100),
             })
             .unwrap();
@@ -96,10 +100,13 @@ impl Scanner {
     }
 
     async fn scan_departure(&mut self) {
+        let (name, device_info) = self.device_map.iter_mut().next().unwrap();
+        device_info.seen = DeviceSeen::NotSeen;
         // TODO
         self.announce_rx
             .send(DeviceAnnouncement {
-                name: "Test".to_string(),
+                name: name.to_string(),
+                mac_address: device_info.mac_address.clone(),
                 presence: crate::messages::DevicePresence::Absent,
             })
             .unwrap();

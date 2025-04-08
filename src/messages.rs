@@ -14,5 +14,6 @@ pub enum DevicePresence {
 #[derive(Clone, Debug)]
 pub struct DeviceAnnouncement {
     pub name: String,
+    pub mac_address: String,
     pub presence: DevicePresence,
 }
