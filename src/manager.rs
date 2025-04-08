@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use anyhow::Context as _;
 use btleplug::api::{Central as _, CentralEvent, Peripheral as _, ScanFilter};
 use futures::StreamExt as _;
 use log::{debug, error, info, warn};
@@ -34,8 +35,11 @@ impl Manager {
         }
     }
 
-    pub async fn run_loop(mut self) -> Result<(), Box<dyn std::error::Error>> {
-        self.adapter.start_scan(ScanFilter::default()).await?;
+    pub async fn run_loop(mut self) -> anyhow::Result<()> {
+        self.adapter
+            .start_scan(ScanFilter::default())
+            .await
+            .context("start adapter scan")?;
 
         let (tx, rx) = broadcast::channel(10);
         let (announce_tx, announce_rx) = broadcast::channel(10);
@@ -85,7 +89,7 @@ impl Manager {
 async fn announce_scan_results(
     mut announce_rx: broadcast::Receiver<DeviceAnnouncement>,
     mqtt_client: &MqttClient,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     debug!("Start announce scan results loop");
     loop {
         match announce_rx.recv().await {
@@ -123,8 +127,8 @@ async fn handle_btle_events(
     adapter: &btleplug::platform::Adapter,
     devices: Vec<BleDevice>,
     tx: broadcast::Sender<StateAnnouncement>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut events = adapter.events().await?;
+) -> anyhow::Result<()> {
+    let mut events = adapter.events().await.context("start event stream")?;
 
     let mut event_stream_closed = false;
 
@@ -145,8 +149,11 @@ async fn handle_btle_events(
         }
         match events.next().await {
             Some(CentralEvent::DeviceDiscovered(id)) => {
-                let peripheral = adapter.peripheral(&id).await?;
-                let properties = peripheral.properties().await?;
+                let peripheral = adapter.peripheral(&id).await.context("get peripheral")?;
+                let properties = peripheral
+                    .properties()
+                    .await
+                    .context("get device properties")?;
 
                 if matching_device(&device_filters, properties) {
                     if let Err(err) = tx.send(StateAnnouncement::DeviceTrigger) {
