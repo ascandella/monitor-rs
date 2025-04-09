@@ -166,10 +166,10 @@ impl Scanner {
             };
 
             if should_scan {
-                scan_device(name, device_info, &self.announce_rx).await?;
                 if scan_count > 0 {
                     tokio::time::sleep(self.interscan_delay_seconds).await;
                 }
+                scan_device(name, device_info, &self.announce_rx).await?;
                 scan_count += 1;
             }
         }
@@ -179,10 +179,10 @@ impl Scanner {
 
     async fn scan_departure(&mut self) -> anyhow::Result<()> {
         for (scan_count, (name, device_info)) in self.device_map.iter_mut().enumerate() {
-            scan_device(name, device_info, &self.announce_rx).await?;
             if scan_count > 0 {
                 tokio::time::sleep(self.interscan_delay_seconds).await;
             }
+            scan_device(name, device_info, &self.announce_rx).await?;
         }
 
         Ok(())
