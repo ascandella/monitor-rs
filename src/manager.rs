@@ -7,13 +7,14 @@ use log::{debug, error, warn};
 use tokio::sync::broadcast;
 
 use crate::{
-    config::BleDevice,
+    config::{AppConfig, BleDevice},
     messages::{DeviceAnnouncement, DevicePresence, StateAnnouncement},
     mqtt::MqttClient,
     scanner::Scanner,
 };
 
 pub struct Manager {
+    cfg: AppConfig,
     adapter: btleplug::platform::Adapter,
     mqtt_client: MqttClient,
     mqtt_event_loop: rumqttc::EventLoop,
@@ -22,16 +23,17 @@ pub struct Manager {
 
 impl Manager {
     pub fn new(
+        cfg: &AppConfig,
         adapter: btleplug::platform::Adapter,
         mqtt_client: MqttClient,
         mqtt_event_loop: rumqttc::EventLoop,
-        devices: Vec<BleDevice>,
     ) -> Self {
         Manager {
+            cfg: cfg.clone(),
             adapter,
             mqtt_client,
             mqtt_event_loop,
-            devices,
+            devices: cfg.devices.clone().unwrap_or_default().clone(),
         }
     }
 
@@ -46,7 +48,12 @@ impl Manager {
 
         let btle_tx = tx.clone();
 
-        let mut scanner = Scanner::new(rx, announce_tx, &self.devices);
+        let mut scanner = Scanner::new(
+            &self.cfg.scan.unwrap_or_default(),
+            rx,
+            announce_tx,
+            &self.devices,
+        );
 
         let mqtt_client = self.mqtt_client.clone();
 

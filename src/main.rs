@@ -51,16 +51,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // get the first bluetooth adapter
     let adapters = bt_manager.adapters().await?;
-    let central = adapters.into_iter().next().ok_or("No Bluetooth adapter found")?;
+    let central = adapters
+        .into_iter()
+        .next()
+        .ok_or("No Bluetooth adapter found")?;
 
     info!("Devices initialized, starting event loop");
 
-    let core = manager::Manager::new(
-        central,
-        mqtt_client,
-        eventloop,
-        config.devices.unwrap_or_default(),
-    );
+    let core = manager::Manager::new(&config, central, mqtt_client, eventloop);
     core.run_loop().await?;
 
     Ok(())

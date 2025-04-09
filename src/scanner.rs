@@ -7,7 +7,7 @@ use tokio::process::Command;
 use tokio::sync::broadcast;
 
 use crate::{
-    config::BleDevice,
+    config::{BleDevice, ScanConfig},
     messages::{DeviceAnnouncement, StateAnnouncement},
 };
 
@@ -15,6 +15,7 @@ pub struct Scanner {
     rx: broadcast::Receiver<StateAnnouncement>,
     device_seen_debounce: std::time::Duration,
     device_trigger_debounce: std::time::Duration,
+    interscan_delay_seconds: std::time::Duration,
     announce_rx: broadcast::Sender<DeviceAnnouncement>,
     device_map: HashMap<String, DeviceState>,
 }
@@ -33,6 +34,7 @@ enum DeviceSeen {
 
 impl Scanner {
     pub fn new(
+        cfg: &ScanConfig,
         rx: broadcast::Receiver<StateAnnouncement>,
         announce_rx: broadcast::Sender<DeviceAnnouncement>,
         devices: &[BleDevice],
@@ -53,9 +55,15 @@ impl Scanner {
         Scanner {
             rx,
             announce_rx,
-            // TODO: make this configurable
-            device_seen_debounce: std::time::Duration::from_secs(60),
-            device_trigger_debounce: std::time::Duration::from_secs(120),
+            device_seen_debounce: std::time::Duration::from_secs(
+                cfg.device_seen_debounce_seconds.unwrap_or(60),
+            ),
+            device_trigger_debounce: std::time::Duration::from_secs(
+                cfg.device_trigger_debounce_seconds.unwrap_or(120),
+            ),
+            interscan_delay_seconds: std::time::Duration::from_secs(
+                cfg.interscan_delay_seconds.unwrap_or(5),
+            ),
             device_map,
         }
     }
@@ -126,6 +134,7 @@ impl Scanner {
     }
 
     async fn scan_arrival(&mut self) -> anyhow::Result<()> {
+        let mut scan_count = 0;
         for (name, device_info) in self.device_map.iter_mut() {
             let now = std::time::SystemTime::now();
             let should_scan = match device_info.seen {
@@ -158,6 +167,10 @@ impl Scanner {
 
             if should_scan {
                 scan_device(name, device_info, &self.announce_rx).await?;
+                if scan_count > 0 {
+                    tokio::time::sleep(self.interscan_delay_seconds).await;
+                }
+                scan_count += 1;
             }
         }
 
@@ -165,8 +178,11 @@ impl Scanner {
     }
 
     async fn scan_departure(&mut self) -> anyhow::Result<()> {
-        for (name, device_info) in self.device_map.iter_mut() {
+        for (scan_count, (name, device_info)) in self.device_map.iter_mut().enumerate() {
             scan_device(name, device_info, &self.announce_rx).await?;
+            if scan_count > 0 {
+                tokio::time::sleep(self.interscan_delay_seconds).await;
+            }
         }
 
         Ok(())
