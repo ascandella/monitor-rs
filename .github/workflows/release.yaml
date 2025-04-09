@@ -32,14 +32,17 @@ jobs:
           target: ${{ matrix.platform.target }}
           override: true
           
-      - name: Compile
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --release --target=${{ matrix.platform.target }}
-
       - name: Publish artifacts and release
-        uses: houseabsolute/actions-rust-release@v0
+        uses: taiki-e/upload-rust-binary-action@v1
         with:
-          executable-name: ubi
+          # (required) Comma-separated list of binary names (non-extension portion of filename) to build and upload.
+          # Note that glob pattern is not supported yet.
+          bin: monitor-rs
+          # (optional) Target triple, default is host triple.
           target: ${{ matrix.platform.target }}
+          # (optional) On which platform to distribute the `.tar.gz` file.
+          # [default value: unix]
+          # [possible values: all, unix, windows, none]
+          tar: none
+          # (required) GitHub token for uploading assets to GitHub Releases.
+          token: ${{ secrets.GITHUB_TOKEN }}
