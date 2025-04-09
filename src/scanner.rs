@@ -15,7 +15,7 @@ pub struct Scanner {
     rx: broadcast::Receiver<StateAnnouncement>,
     device_seen_debounce: std::time::Duration,
     device_trigger_debounce: std::time::Duration,
-    interscan_delay_seconds: std::time::Duration,
+    interscan_delay: std::time::Duration,
     announce_rx: broadcast::Sender<DeviceAnnouncement>,
     device_map: HashMap<String, DeviceState>,
 }
@@ -61,7 +61,7 @@ impl Scanner {
             device_trigger_debounce: std::time::Duration::from_secs(
                 cfg.device_trigger_debounce_seconds.unwrap_or(120),
             ),
-            interscan_delay_seconds: std::time::Duration::from_secs(
+            interscan_delay: std::time::Duration::from_secs(
                 cfg.interscan_delay_seconds.unwrap_or(5),
             ),
             device_map,
@@ -167,7 +167,7 @@ impl Scanner {
 
             if should_scan {
                 if scan_count > 0 {
-                    tokio::time::sleep(self.interscan_delay_seconds).await;
+                    tokio::time::sleep(self.interscan_delay).await;
                 }
                 scan_device(name, device_info, &self.announce_rx).await?;
                 scan_count += 1;
@@ -180,7 +180,7 @@ impl Scanner {
     async fn scan_departure(&mut self) -> anyhow::Result<()> {
         for (scan_count, (name, device_info)) in self.device_map.iter_mut().enumerate() {
             if scan_count > 0 {
-                tokio::time::sleep(self.interscan_delay_seconds).await;
+                tokio::time::sleep(self.interscan_delay).await;
             }
             scan_device(name, device_info, &self.announce_rx).await?;
         }
