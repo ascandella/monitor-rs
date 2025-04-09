@@ -68,7 +68,7 @@ mod tests {
             device_trigger_debounce_seconds = 60
             interscan_delay_seconds = 5
         "#;
-        let config: AppConfig = toml::de::from_str(&config_str).unwrap();
+        let config: AppConfig = toml::de::from_str(config_str).unwrap();
         assert!(config.mqtt.host == "localhost");
         assert!(config.scan.is_some());
         assert!(config.scan.map(|s| s.device_seen_debounce_seconds).unwrap() == Some(60));
