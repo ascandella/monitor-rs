@@ -46,22 +46,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
     debug!("Configured to look for devices: {:?}", config.devices);
 
     let (mqtt_client, eventloop) = mqtt::MqttClient::new(&config.mqtt);
-    mqtt_client.subscribe().await?;
 
     let bt_manager = Manager::new().await?;
 
     // get the first bluetooth adapter
     let adapters = bt_manager.adapters().await?;
-    let central = adapters.into_iter().next().unwrap();
+    let central = adapters
+        .into_iter()
+        .next()
+        .ok_or("No Bluetooth adapter found")?;
 
     info!("Devices initialized, starting event loop");
 
-    let core = manager::Manager::new(
-        central,
-        mqtt_client,
-        eventloop,
-        config.devices.unwrap_or_default(),
-    );
+    let core = manager::Manager::new(&config, central, mqtt_client, eventloop);
     core.run_loop().await?;
 
     Ok(())

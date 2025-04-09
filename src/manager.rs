@@ -1,18 +1,20 @@
 use std::collections::HashSet;
 
+use anyhow::Context as _;
 use btleplug::api::{Central as _, CentralEvent, Peripheral as _, ScanFilter};
 use futures::StreamExt as _;
-use log::{debug, error, info, warn};
+use log::{debug, error, warn};
 use tokio::sync::broadcast;
 
 use crate::{
-    config::BleDevice,
+    config::{AppConfig, BleDevice},
     messages::{DeviceAnnouncement, DevicePresence, StateAnnouncement},
     mqtt::MqttClient,
     scanner::Scanner,
 };
 
 pub struct Manager {
+    cfg: AppConfig,
     adapter: btleplug::platform::Adapter,
     mqtt_client: MqttClient,
     mqtt_event_loop: rumqttc::EventLoop,
@@ -21,32 +23,43 @@ pub struct Manager {
 
 impl Manager {
     pub fn new(
+        cfg: &AppConfig,
         adapter: btleplug::platform::Adapter,
         mqtt_client: MqttClient,
         mqtt_event_loop: rumqttc::EventLoop,
-        devices: Vec<BleDevice>,
     ) -> Self {
         Manager {
+            cfg: cfg.clone(),
             adapter,
             mqtt_client,
             mqtt_event_loop,
-            devices,
+            devices: cfg.devices.clone().unwrap_or_default().clone(),
         }
     }
 
-    pub async fn run_loop(mut self) -> Result<(), Box<dyn std::error::Error>> {
-        self.adapter.start_scan(ScanFilter::default()).await?;
+    pub async fn run_loop(mut self) -> anyhow::Result<()> {
+        self.adapter
+            .start_scan(ScanFilter::default())
+            .await
+            .context("start adapter scan")?;
 
         let (tx, rx) = broadcast::channel(10);
         let (announce_tx, announce_rx) = broadcast::channel(10);
 
         let btle_tx = tx.clone();
 
-        let mut scanner = Scanner::new(rx, announce_tx, &self.devices);
+        let mut scanner = Scanner::new(
+            &self.cfg.scan.unwrap_or_default(),
+            rx,
+            announce_tx,
+            &self.devices,
+        );
+
+        let mqtt_client = self.mqtt_client.clone();
 
         // Handle incoming MQTT messages (e.g. arrival scan requests)
         tokio::task::spawn(async move {
-            MqttClient::event_loop(&mut self.mqtt_event_loop, tx).await;
+            mqtt_client.event_loop(&mut self.mqtt_event_loop, tx).await;
         });
 
         tokio::task::spawn(async move {
@@ -83,7 +96,7 @@ impl Manager {
 async fn announce_scan_results(
     mut announce_rx: broadcast::Receiver<DeviceAnnouncement>,
     mqtt_client: &MqttClient,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> anyhow::Result<()> {
     debug!("Start announce scan results loop");
     loop {
         match announce_rx.recv().await {
@@ -121,8 +134,8 @@ async fn handle_btle_events(
     adapter: &btleplug::platform::Adapter,
     devices: Vec<BleDevice>,
     tx: broadcast::Sender<StateAnnouncement>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut events = adapter.events().await?;
+) -> anyhow::Result<()> {
+    let mut events = adapter.events().await.context("start event stream")?;
 
     let mut event_stream_closed = false;
 
@@ -143,8 +156,11 @@ async fn handle_btle_events(
         }
         match events.next().await {
             Some(CentralEvent::DeviceDiscovered(id)) => {
-                let peripheral = adapter.peripheral(&id).await?;
-                let properties = peripheral.properties().await?;
+                let peripheral = adapter.peripheral(&id).await.context("get peripheral")?;
+                let properties = peripheral
+                    .properties()
+                    .await
+                    .context("get device properties")?;
 
                 if matching_device(&device_filters, properties) {
                     if let Err(err) = tx.send(StateAnnouncement::DeviceTrigger) {
@@ -176,7 +192,7 @@ fn matching_device(
             let manufacturer_id = manufacturer_data.keys().find(|id| company_ids.contains(id));
 
             if let Some(manufacturer_id) = manufacturer_id {
-                info!(
+                debug!(
                     "Discovered device passing manufacturer filter {}{} [{}]",
                     props.address, name, manufacturer_id
                 );

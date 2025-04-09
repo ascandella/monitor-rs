@@ -1,12 +1,14 @@
 use std::time::Duration;
 
+use anyhow::Context as _;
 use log::{debug, error, info};
-use rumqttc::{MqttOptions, QoS};
+use rumqttc::{MqttOptions, QoS, SubscribeFilter};
 use serde::Serialize;
 use tokio::sync::broadcast;
 
 use crate::{config, messages::StateAnnouncement};
 
+#[derive(Debug, Clone)]
 pub struct MqttClient {
     client: rumqttc::AsyncClient,
     publisher_id: String,
@@ -36,7 +38,7 @@ impl MqttClient {
             config.port.unwrap_or(1883),
         );
 
-        mqttoptions.set_keep_alive(Duration::from_secs(config.keep_alive_seconds.unwrap_or(5)));
+        mqttoptions.set_keep_alive(Duration::from_secs(config.keep_alive_seconds.unwrap_or(15)));
 
         if let (Some(username), Some(password)) =
             (config.username.as_ref(), config.password.as_ref())
@@ -58,13 +60,17 @@ impl MqttClient {
 
     pub async fn subscribe(&self) -> Result<(), rumqttc::ClientError> {
         self.client
-            .subscribe(format!("{}/scan/arrive", self.topic_path), QoS::AtMostOnce)
+            .subscribe_many(vec![
+                SubscribeFilter::new(format!("{}/scan/arrive", self.topic_path), QoS::AtMostOnce),
+                SubscribeFilter::new(format!("{}/scan/depart", self.topic_path), QoS::AtMostOnce),
+            ])
             .await?;
 
         Ok(())
     }
 
     pub async fn event_loop(
+        &self,
         eventloop: &mut rumqttc::EventLoop,
         tx: broadcast::Sender<StateAnnouncement>,
     ) {
@@ -87,6 +93,12 @@ impl MqttClient {
                     rumqttc::Event::Incoming(rumqttc::Packet::SubAck(_)) => {
                         debug!("Subscription acknowledged");
                     }
+                    rumqttc::Event::Incoming(rumqttc::Packet::ConnAck(_)) => {
+                        debug!("Connection acknowledged");
+                        if let Err(err) = self.subscribe().await {
+                            error!("Error subscribing to MQTT topics: {:?}", err);
+                        }
+                    }
                     _ => {}
                 },
                 Err(e) => {
@@ -101,7 +113,7 @@ impl MqttClient {
         name: &str,
         mac_address: String,
         confidence: u8,
-    ) -> Result<(), rumqttc::ClientError> {
+    ) -> anyhow::Result<()> {
         info!(
             "Announcing device {} (confidence: {}) on MQTT",
             name, confidence
@@ -114,15 +126,20 @@ impl MqttClient {
             confidence,
             retained: false,
         };
+
         let channel_name = sanitize_name(name);
+
         self.client
             .publish(
                 format!("{}/{}/{}", self.topic_path, self.publisher_id, channel_name),
                 QoS::AtMostOnce,
                 false,
-                serde_json::to_string(&message).unwrap(),
+                serde_json::to_string(&message).context("Failed to serialize MQTT message")?,
             )
             .await
+            .context("Failed to publish MQTT message")?;
+
+        Ok(())
     }
 
     pub async fn disconnect(&self) -> Result<(), rumqttc::ClientError> {

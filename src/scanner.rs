@@ -7,7 +7,7 @@ use tokio::process::Command;
 use tokio::sync::broadcast;
 
 use crate::{
-    config::BleDevice,
+    config::{BleDevice, ScanConfig},
     messages::{DeviceAnnouncement, StateAnnouncement},
 };
 
@@ -15,6 +15,7 @@ pub struct Scanner {
     rx: broadcast::Receiver<StateAnnouncement>,
     device_seen_debounce: std::time::Duration,
     device_trigger_debounce: std::time::Duration,
+    interscan_delay_seconds: std::time::Duration,
     announce_rx: broadcast::Sender<DeviceAnnouncement>,
     device_map: HashMap<String, DeviceState>,
 }
@@ -33,6 +34,7 @@ enum DeviceSeen {
 
 impl Scanner {
     pub fn new(
+        cfg: &ScanConfig,
         rx: broadcast::Receiver<StateAnnouncement>,
         announce_rx: broadcast::Sender<DeviceAnnouncement>,
         devices: &[BleDevice],
@@ -53,9 +55,15 @@ impl Scanner {
         Scanner {
             rx,
             announce_rx,
-            // TODO: make this configurable
-            device_seen_debounce: std::time::Duration::from_secs(60),
-            device_trigger_debounce: std::time::Duration::from_secs(60),
+            device_seen_debounce: std::time::Duration::from_secs(
+                cfg.device_seen_debounce_seconds.unwrap_or(60),
+            ),
+            device_trigger_debounce: std::time::Duration::from_secs(
+                cfg.device_trigger_debounce_seconds.unwrap_or(120),
+            ),
+            interscan_delay_seconds: std::time::Duration::from_secs(
+                cfg.interscan_delay_seconds.unwrap_or(5),
+            ),
             device_map,
         }
     }
@@ -69,36 +77,47 @@ impl Scanner {
                 Ok(msg) => match msg {
                     StateAnnouncement::ScanArrive => {
                         info!("Received arrival scan request");
+                        last_trigger = Some(std::time::SystemTime::now());
                         self.scan_arrival()
                             .await
                             .context("Failed to scan arrivals")?;
                     }
                     StateAnnouncement::ScanDepart => {
                         info!("Received departure request");
+                        last_trigger = Some(std::time::SystemTime::now());
                         self.scan_departure()
                             .await
                             .context("Failed to scan departure")?;
                     }
                     StateAnnouncement::DeviceTrigger => {
-                        let should_scan_devices = match last_trigger {
-                            Some(last_trigger) => {
-                                if last_trigger.elapsed().unwrap() < self.device_trigger_debounce {
+                        let should_scan_devices = match last_trigger.map(|t| t.elapsed()) {
+                            Some(Ok(duration)) => {
+                                if duration > self.device_trigger_debounce {
+                                    debug!("Device trigger received after {:?}", duration);
+                                    true
+                                } else {
                                     debug!("Device trigger received too soon, ignoring");
                                     false
-                                } else {
-                                    true
                                 }
                             }
-                            None => true,
+                            Some(Err(err)) => {
+                                error!(
+                                    "Unable to calculate duration since last trigger: {:?}",
+                                    err
+                                );
+                                true
+                            }
+                            None => {
+                                debug!("Device trigger received, no previous trigger time");
+                                true
+                            }
                         };
                         if should_scan_devices {
-                            info!("Received device trigger request");
+                            info!("Triggering scan due to new device matching manufacturer filter");
                             last_trigger = Some(std::time::SystemTime::now());
                             self.scan_arrival()
                                 .await
                                 .context("Failed to scan for device trigger")?;
-                        } else {
-                            debug!("Device trigger received too soon, ignoring");
                         }
                     }
                 },
@@ -115,6 +134,7 @@ impl Scanner {
     }
 
     async fn scan_arrival(&mut self) -> anyhow::Result<()> {
+        let mut scan_count = 0;
         for (name, device_info) in self.device_map.iter_mut() {
             let now = std::time::SystemTime::now();
             let should_scan = match device_info.seen {
@@ -147,6 +167,10 @@ impl Scanner {
 
             if should_scan {
                 scan_device(name, device_info, &self.announce_rx).await?;
+                if scan_count > 0 {
+                    tokio::time::sleep(self.interscan_delay_seconds).await;
+                }
+                scan_count += 1;
             }
         }
 
@@ -154,8 +178,11 @@ impl Scanner {
     }
 
     async fn scan_departure(&mut self) -> anyhow::Result<()> {
-        for (name, device_info) in self.device_map.iter_mut() {
+        for (scan_count, (name, device_info)) in self.device_map.iter_mut().enumerate() {
             scan_device(name, device_info, &self.announce_rx).await?;
+            if scan_count > 0 {
+                tokio::time::sleep(self.interscan_delay_seconds).await;
+            }
         }
 
         Ok(())
@@ -175,7 +202,7 @@ async fn scan_device(
             name,
             &device_info.mac_address,
             crate::messages::DevicePresence::Present(100),
-        )?;
+        )
     } else {
         debug!("Device {} is not present", name);
         device_info.seen = DeviceSeen::NotSeen;
@@ -184,9 +211,8 @@ async fn scan_device(
             name,
             &device_info.mac_address,
             crate::messages::DevicePresence::Absent,
-        )?;
+        )
     }
-    Ok(())
 }
 
 fn announce_device(
@@ -206,6 +232,10 @@ fn announce_device(
     Ok(())
 }
 
+/// Shell out to `hcitool name <MAC>` like the Bash version of this utility does.
+/// Theoretically this is something that could be done in Rust, but `btleplug` only supports direct
+/// connecting via MAC address on Android, not Windows/Linux/macOS. That means this
+/// function only works on Linux, since `hcitool` is a `bluez` utility.
 async fn is_device_present(state: &DeviceState) -> anyhow::Result<bool> {
     let output = Command::new("hcitool")
         .arg("name")
