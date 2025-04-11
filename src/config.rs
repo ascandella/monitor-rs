@@ -45,6 +45,8 @@ pub struct BleDevice {
 
 #[derive(Deserialize, Debug, Default, Clone)]
 pub struct ScanConfig {
+    pub listen_for_discovery: Option<bool>,
+    pub presence_timeout_seconds: Option<u64>,
     pub device_seen_debounce_seconds: Option<u64>,
     pub device_trigger_debounce_seconds: Option<u64>,
     pub interscan_delay_seconds: Option<u64>,

@@ -48,12 +48,8 @@ impl Manager {
 
         let btle_tx = tx.clone();
 
-        let mut scanner = Scanner::new(
-            &self.cfg.scan.unwrap_or_default(),
-            rx,
-            announce_tx,
-            &self.devices,
-        );
+        let scan_config = self.cfg.scan.unwrap_or_default();
+        let mut scanner = Scanner::new(&scan_config, rx, announce_tx, tx.clone(), &self.devices);
 
         let mqtt_client = self.mqtt_client.clone();
 
@@ -69,23 +65,29 @@ impl Manager {
             debug!("Done scanning devices");
         });
 
-        tokio::task::spawn(async move {
+        let announce_handle = tokio::task::spawn(async move {
             if let Err(err) = announce_scan_results(announce_rx, &self.mqtt_client).await {
                 error!("Error handling scan results: {:?}", err);
             }
             debug!("Done announcing scan results");
         });
 
-        // Run on a separate thread as these currently block
+        let listen_for_discovery = scan_config.listen_for_discovery.unwrap_or(true);
+
         let btle_handle = tokio::task::spawn(async move {
-            if let Err(err) = handle_btle_events(&self.adapter, self.devices, btle_tx).await {
-                error!("Error handling BLE events: {:?}", err);
+            if listen_for_discovery {
+                if let Err(err) = handle_btle_events(&self.adapter, self.devices, btle_tx).await {
+                    error!("Error handling BLE events: {:?}", err);
+                }
+                debug!("Done handling BLE events");
             }
-            debug!("Done handling BLE events");
         });
 
         if let Err(err) = btle_handle.await {
             error!("Error handling BLE events: {:?}", err);
+        }
+        if let Err(err) = announce_handle.await {
+            error!("Error announcing scan results: {:?}", err);
         }
         debug!("Exiting manager event loop");
 

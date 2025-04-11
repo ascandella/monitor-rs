@@ -13,10 +13,12 @@ use crate::{
 
 pub struct Scanner {
     rx: broadcast::Receiver<StateAnnouncement>,
+    tx: broadcast::Sender<StateAnnouncement>,
+    presence_timeout: std::time::Duration,
     device_seen_debounce: std::time::Duration,
     device_trigger_debounce: std::time::Duration,
     interscan_delay: std::time::Duration,
-    announce_rx: broadcast::Sender<DeviceAnnouncement>,
+    announce_tx: broadcast::Sender<DeviceAnnouncement>,
     device_map: HashMap<String, DeviceState>,
 }
 
@@ -36,7 +38,8 @@ impl Scanner {
     pub fn new(
         cfg: &ScanConfig,
         rx: broadcast::Receiver<StateAnnouncement>,
-        announce_rx: broadcast::Sender<DeviceAnnouncement>,
+        announce_tx: broadcast::Sender<DeviceAnnouncement>,
+        tx: broadcast::Sender<StateAnnouncement>,
         devices: &[BleDevice],
     ) -> Self {
         let device_map = devices
@@ -54,7 +57,8 @@ impl Scanner {
 
         Scanner {
             rx,
-            announce_rx,
+            tx,
+            announce_tx,
             device_seen_debounce: std::time::Duration::from_secs(
                 cfg.device_seen_debounce_seconds.unwrap_or(60),
             ),
@@ -63,6 +67,9 @@ impl Scanner {
             ),
             interscan_delay: std::time::Duration::from_secs(
                 cfg.interscan_delay_seconds.unwrap_or(5),
+            ),
+            presence_timeout: std::time::Duration::from_secs(
+                cfg.presence_timeout_seconds.unwrap_or(120),
             ),
             device_map,
         }
@@ -75,6 +82,12 @@ impl Scanner {
             match self.rx.recv().await {
                 // Handle incoming MQTT messages (e.g. arrival scan requests)
                 Ok(msg) => match msg {
+                    StateAnnouncement::CheckStillPresent(device_name) => {
+                        info!("Received check presence request for {}", device_name);
+                        self.check_still_present(&device_name)
+                            .await
+                            .context("Failed to check presence")?;
+                    }
                     StateAnnouncement::ScanArrive => {
                         info!("Received arrival scan request");
                         last_trigger = Some(std::time::SystemTime::now());
@@ -133,6 +146,27 @@ impl Scanner {
         Ok(())
     }
 
+    async fn check_still_present(&mut self, device_name: &str) -> anyhow::Result<()> {
+        if let Some(device_info) = self.device_map.get_mut(device_name) {
+            debug!("Checking if device {} is still present", device_name);
+            scan_device(
+                device_name,
+                device_info,
+                self.tx.clone(),
+                &self.announce_tx,
+                self.presence_timeout,
+            )
+            .await
+        } else {
+            error!(
+                "Device {} not found in device map, can't check presence",
+                device_name
+            );
+            // Not really OK, but don't want to abort event loop
+            Ok(())
+        }
+    }
+
     async fn scan_arrival(&mut self) -> anyhow::Result<()> {
         let mut scan_count = 0;
         for (name, device_info) in self.device_map.iter_mut() {
@@ -169,7 +203,14 @@ impl Scanner {
                 if scan_count > 0 {
                     tokio::time::sleep(self.interscan_delay).await;
                 }
-                scan_device(name, device_info, &self.announce_rx).await?;
+                scan_device(
+                    name,
+                    device_info,
+                    self.tx.clone(),
+                    &self.announce_tx,
+                    self.presence_timeout,
+                )
+                .await?;
                 scan_count += 1;
             }
         }
@@ -182,7 +223,14 @@ impl Scanner {
             if scan_count > 0 {
                 tokio::time::sleep(self.interscan_delay).await;
             }
-            scan_device(name, device_info, &self.announce_rx).await?;
+            scan_device(
+                name,
+                device_info,
+                self.tx.clone(),
+                &self.announce_tx,
+                self.presence_timeout,
+            )
+            .await?;
         }
 
         Ok(())
@@ -192,13 +240,25 @@ impl Scanner {
 async fn scan_device(
     name: &str,
     device_info: &mut DeviceState,
-    announce_rx: &broadcast::Sender<DeviceAnnouncement>,
+    tx: broadcast::Sender<StateAnnouncement>,
+    announce_tx: &broadcast::Sender<DeviceAnnouncement>,
+    presence_timeout: std::time::Duration,
 ) -> anyhow::Result<()> {
     let now = std::time::SystemTime::now();
     if is_device_present(device_info).await? {
         device_info.seen = DeviceSeen::Seen(now);
+        let device_name = name.to_string();
+        tokio::task::spawn(async move {
+            tokio::time::sleep(presence_timeout).await;
+            if let Err(err) = tx
+                .send(StateAnnouncement::CheckStillPresent(device_name))
+                .context("Failed to send check presence request")
+            {
+                error!("Presence timeout elapsed for device {}", err)
+            }
+        });
         announce_device(
-            announce_rx,
+            announce_tx,
             name,
             &device_info.mac_address,
             crate::messages::DevicePresence::Present(100),
@@ -207,7 +267,7 @@ async fn scan_device(
         debug!("Device {} is not present", name);
         device_info.seen = DeviceSeen::NotSeen;
         announce_device(
-            announce_rx,
+            announce_tx,
             name,
             &device_info.mac_address,
             crate::messages::DevicePresence::Absent,
@@ -216,12 +276,12 @@ async fn scan_device(
 }
 
 fn announce_device(
-    announce_rx: &broadcast::Sender<DeviceAnnouncement>,
+    announce_tx: &broadcast::Sender<DeviceAnnouncement>,
     name: &str,
     mac_address: &str,
     presence: crate::messages::DevicePresence,
 ) -> anyhow::Result<()> {
-    announce_rx
+    announce_tx
         .send(DeviceAnnouncement {
             name: name.to_string(),
             mac_address: mac_address.to_string(),

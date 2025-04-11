@@ -3,6 +3,7 @@ pub enum StateAnnouncement {
     DeviceTrigger,
     ScanArrive,
     ScanDepart,
+    CheckStillPresent(/* device name */ String),
 }
 
 #[derive(Clone, Debug)]
