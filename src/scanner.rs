@@ -83,7 +83,7 @@ impl Scanner {
                 // Handle incoming MQTT messages (e.g. arrival scan requests)
                 Ok(msg) => match msg {
                     StateAnnouncement::CheckStillPresent(device_name) => {
-                        info!("Received check presence request for {}", device_name);
+                        info!("Received check presence request for {device_name}");
                         self.check_still_present(&device_name)
                             .await
                             .context("Failed to check presence")?;
@@ -106,7 +106,7 @@ impl Scanner {
                         let should_scan_devices = match last_trigger.map(|t| t.elapsed()) {
                             Some(Ok(duration)) => {
                                 if duration > self.device_trigger_debounce {
-                                    debug!("Device trigger received after {:?}", duration);
+                                    debug!("Device trigger received after {duration:?}");
                                     true
                                 } else {
                                     debug!("Device trigger received too soon, ignoring");
@@ -114,10 +114,7 @@ impl Scanner {
                                 }
                             }
                             Some(Err(err)) => {
-                                error!(
-                                    "Unable to calculate duration since last trigger: {:?}",
-                                    err
-                                );
+                                error!("Unable to calculate duration since last trigger: {err:?}");
                                 true
                             }
                             None => {
@@ -148,7 +145,7 @@ impl Scanner {
 
     async fn check_still_present(&mut self, device_name: &str) -> anyhow::Result<()> {
         if let Some(device_info) = self.device_map.get_mut(device_name) {
-            debug!("Checking if device {} is still present", device_name);
+            debug!("Checking if device {device_name} is still present");
             scan_device(
                 device_name,
                 device_info,
@@ -158,10 +155,7 @@ impl Scanner {
             )
             .await
         } else {
-            error!(
-                "Device {} not found in device map, can't check presence",
-                device_name
-            );
+            error!("Device {device_name} not found in device map, can't check presence",);
             // Not really OK, but don't want to abort event loop
             Ok(())
         }
@@ -175,25 +169,21 @@ impl Scanner {
                 DeviceSeen::Seen(at) => match now.duration_since(at) {
                     Ok(duration) => {
                         if duration > self.device_seen_debounce {
-                            debug!("Device {} hasn't been seen in {:?}", name, duration);
+                            debug!("Device {name} hasn't been seen in {duration:?}");
                             true
                         } else {
-                            debug!("Device {} is seen recently ({:?}), not scanning", name, at);
+                            debug!("Device {name} is seen recently ({at:?}), not scanning");
                             false
                         }
                     }
                     Err(err) => {
-                        error!(
-                            "Unable to calculate duration since last seen: {}, {:?}",
-                            name, err
-                        );
+                        error!("Unable to calculate duration since last seen: {name}, {err:?}");
                         true
                     }
                 },
                 DeviceSeen::NotSeen => {
                     debug!(
-                        "Device {} currently marked as absent, is candidate for arrival scan",
-                        name
+                        "Device {name} currently marked as absent, is candidate for arrival scan"
                     );
                     true
                 }
@@ -254,7 +244,7 @@ async fn scan_device(
                 .send(StateAnnouncement::CheckStillPresent(device_name))
                 .context("Failed to send check presence request")
             {
-                error!("Presence timeout elapsed for device {}", err)
+                error!("Presence timeout elapsed for device {err}")
             }
         });
         announce_device(
@@ -264,7 +254,7 @@ async fn scan_device(
             crate::messages::DevicePresence::Present(100),
         )
     } else {
-        debug!("Device {} is not present", name);
+        debug!("Device {name} is not present");
         device_info.seen = DeviceSeen::NotSeen;
         announce_device(
             announce_tx,
