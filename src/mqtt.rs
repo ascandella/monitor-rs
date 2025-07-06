@@ -79,7 +79,7 @@ impl MqttClient {
                 Ok(notification) => match notification {
                     rumqttc::Event::Incoming(rumqttc::Packet::Publish(p)) => {
                         let payload = p.payload;
-                        debug!("Received MQTT message on topic {}: {:?}", p.topic, payload);
+                        debug!("Received MQTT message on topic {}: {payload:?}", p.topic);
 
                         let message = match p.topic {
                             t if t.ends_with("/arrive") => StateAnnouncement::ScanArrive,
@@ -87,7 +87,7 @@ impl MqttClient {
                         };
 
                         if let Err(err) = tx.send(message) {
-                            error!("Error announcing scan: {:?}", err);
+                            error!("Error announcing scan: {err:?}");
                         }
                     }
                     rumqttc::Event::Incoming(rumqttc::Packet::SubAck(_)) => {
@@ -96,13 +96,13 @@ impl MqttClient {
                     rumqttc::Event::Incoming(rumqttc::Packet::ConnAck(_)) => {
                         debug!("Connection acknowledged");
                         if let Err(err) = self.subscribe().await {
-                            error!("Error subscribing to MQTT topics: {:?}", err);
+                            error!("Error subscribing to MQTT topics: {err:?}");
                         }
                     }
                     _ => {}
                 },
                 Err(e) => {
-                    error!("Error polling MQTT event loop: {:?}", e);
+                    error!("Error polling MQTT event loop: {e:?}");
                 }
             }
         }
@@ -114,10 +114,7 @@ impl MqttClient {
         mac_address: String,
         confidence: u8,
     ) -> anyhow::Result<()> {
-        info!(
-            "Announcing device {} (confidence: {}) on MQTT",
-            name, confidence
-        );
+        info!("Announcing device {name} (confidence: {confidence}) on MQTT");
         // TODO: Implement device tracker (`home` / `not_home`)
         // b"{\"id\":\"<mac address>\",\"confidence\":\"0\",\"name\":\"<name>\",\"manufacturer\":\"Apple Inc\",\"type\":\"KNOWN_MAC\",\"retained\":\"false\",\"timestamp\":\"2025-04-06T13:23:39-0700\",\"version\":\"0.2.200\"}"
         let message = DeviceMqttMessage {

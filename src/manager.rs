@@ -60,14 +60,14 @@ impl Manager {
 
         tokio::task::spawn(async move {
             if let Err(err) = scanner.run().await {
-                error!("Error handling scanner events: {:?}", err);
+                error!("Error handling scanner events: {err:?}");
             }
             debug!("Done scanning devices");
         });
 
         let announce_handle = tokio::task::spawn(async move {
             if let Err(err) = announce_scan_results(announce_rx, &self.mqtt_client).await {
-                error!("Error handling scan results: {:?}", err);
+                error!("Error handling scan results: {err:?}");
             }
             debug!("Done announcing scan results");
         });
@@ -77,17 +77,17 @@ impl Manager {
         let btle_handle = tokio::task::spawn(async move {
             if listen_for_discovery {
                 if let Err(err) = handle_btle_events(&self.adapter, self.devices, btle_tx).await {
-                    error!("Error handling BLE events: {:?}", err);
+                    error!("Error handling BLE events: {err:?}");
                 }
                 debug!("Done handling BLE events");
             }
         });
 
         if let Err(err) = btle_handle.await {
-            error!("Error handling BLE events: {:?}", err);
+            error!("Error handling BLE events: {err:?}");
         }
         if let Err(err) = announce_handle.await {
-            error!("Error announcing scan results: {:?}", err);
+            error!("Error announcing scan results: {err:?}");
         }
         debug!("Exiting manager event loop");
 
@@ -166,7 +166,7 @@ async fn handle_btle_events(
 
                 if matching_device(&device_filters, properties) {
                     if let Err(err) = tx.send(StateAnnouncement::DeviceTrigger) {
-                        error!("Error sending scan arrival message: {:?}", err);
+                        error!("Error sending scan arrival message: {err:?}");
                     }
                 }
             }
@@ -188,21 +188,21 @@ fn matching_device(
         Some(props) => {
             let name = props
                 .local_name
-                .map(|name| format!(" name: {}", name))
+                .map(|name| format!(" name: {name}"))
                 .unwrap_or_default();
             let manufacturer_data = props.manufacturer_data;
             let manufacturer_id = manufacturer_data.keys().find(|id| company_ids.contains(id));
 
             if let Some(manufacturer_id) = manufacturer_id {
                 debug!(
-                    "Discovered device passing manufacturer filter {}{} [{}]",
-                    props.address, name, manufacturer_id
+                    "Discovered device passing manufacturer filter {}{name} [{manufacturer_id}]",
+                    props.address
                 );
                 true
             } else {
                 debug!(
-                    "Discovered device but not interested in manufacturer {}{}",
-                    props.address, name
+                    "Discovered device but not interested in manufacturer {}{name}",
+                    props.address
                 );
                 false
             }
