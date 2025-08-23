@@ -164,10 +164,10 @@ async fn handle_btle_events(
                     .await
                     .context("get device properties")?;
 
-                if matching_device(&device_filters, properties) {
-                    if let Err(err) = tx.send(StateAnnouncement::DeviceTrigger) {
-                        error!("Error sending scan arrival message: {err:?}");
-                    }
+                if matching_device(&device_filters, properties)
+                    && let Err(err) = tx.send(StateAnnouncement::DeviceTrigger)
+                {
+                    error!("Error sending scan arrival message: {err:?}");
                 }
             }
             Some(_) => {}
