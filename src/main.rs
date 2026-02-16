@@ -1,6 +1,6 @@
 use btleplug::api::Manager as _;
 use btleplug::platform::Manager;
-use clap::{Parser, arg};
+use clap::Parser;
 use log::{LevelFilter, debug, info};
 use std::error::Error;
 use std::fs::File;
